@@ -9,11 +9,12 @@ Global Dim bgColor.l(#MAX_CONTAINERS-1)
 Global Dim innerColor.l(#MAX_CONTAINERS-1)
 Global Dim neutralInnerColor.l(#MAX_CONTAINERS-1)
 Global Dim infoImageID.l(#MAX_CONTAINERS-1)
-Global Dim dockerProgramID.l(#MAX_CONTAINERS-1)
+Global Dim dockerProgramID(#MAX_CONTAINERS-1)
 Global Dim patternCount.l(#MAX_CONTAINERS-1)
 Global Dim lastMatchTime.l(#MAX_CONTAINERS-1)
 Global Dim tooltip.s(#MAX_CONTAINERS-1)
 Global Dim trayID.l(#MAX_CONTAINERS-1)
+Global Dim containerStarted.b(#MAX_CONTAINERS-1)
 
 Global Dim patterns.s(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim patternColor.l(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
@@ -36,29 +37,89 @@ Procedure CreateMonitorIcon(index, innerCol, bgCol)
   EndIf
 EndProcedure
 
-Procedure StartDockerFollow(index)
-  If dockerProgramID(index) <> 0
-    CloseProgram(dockerProgramID(index))
-    dockerProgramID(index) = 0
-  EndIf
-  dockerProgramID(index) = RunProgram("docker", "logs --follow " + containerName(index), "", #PB_Program_Read | #PB_Program_Hide)
+Procedure SetListItemStarted(index,started)
+  bgCol = bgColor(index)
   
-  If trayID(index) = 0
-    CreateMonitorIcon(index, innerColor(index), bgColor(index))
+  Protected img = CreateImage(#PB_Any, 32, 32, 32, bgCol)
+  If img
+    StartVectorDrawing(ImageVectorOutput(img))
+    VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
+    FillVectorOutput()
+    If started
+      ; Play triangle coordinates (scaled to 32x32)
+      MovePathCursor(8, 6)
+      AddPathLine(24, 16)
+      AddPathLine(8, 26)
+      ClosePath()
+      
+      VectorSourceColor(RGBA(0,0,0,255)) ; black
+      FillPath()
+    EndIf
+    StopVectorDrawing()
+    
+    SetGadgetItemImage(0, index, ImageID(img))
   EndIf
-  
-  SetGadgetItemColor(0, index, #PB_Gadget_BackColor, RGB(0,255,0))
-  SetGadgetItemColor(0, index, #PB_Gadget_FrontColor, RGB(0,0,0))
 EndProcedure
 
-Procedure AddMonitorInternal(contName.s, bgCol.l, innerCol.l)
+
+
+
+Procedure SetListItemColor(gadgetID, index, color)
+  Protected img = CreateImage(#PB_Any, 1, 1)
+  If img
+    StartDrawing(ImageOutput(img))
+    Box(0, 0, 1, 1, color)
+    StopDrawing()
+    SetGadgetItemImage(gadgetID, index, ImageID(img))
+  EndIf
+EndProcedure
+
+Procedure UpdateButtonStates()
+  
+  selIndex = GetGadgetState(0)
+  If selIndex >= 0
+    DisableGadget(2, #False)
+    
+    DisableGadget(5, #False)
+    DisableGadget(6, #False)
+    If containerStarted(selIndex)
+      DisableGadget(3, #True)
+      DisableGadget(4, #False)
+    Else
+      DisableGadget(3, #False)
+      DisableGadget(4, #True)
+    EndIf
+  Else
+    DisableGadget(2, #True)
+    DisableGadget(3, #True)
+    DisableGadget(4, #True)
+    DisableGadget(5, #True)
+    DisableGadget(6, #True)
+  EndIf
+  
+  
+  
+  
+EndProcedure
+
+Procedure UpdateMonitorList()
+  ClearGadgetItems(0)
+  For i = 0 To monitorCount-1
+    AddGadgetItem(0, -1, containerName(i))
+    ;SetListItemColor(0, i, bgColor(i))
+    SetListItemStarted(i,containerStarted(i))
+  Next
+  UpdateButtonStates()
+EndProcedure
+
+Procedure AddMonitor(contName.s, bgCol.l)
   If monitorCount >= #MAX_CONTAINERS
     MessageRequester("Docker Status", "Max monitors reached", 0)
     ProcedureReturn
   EndIf
   containerName(monitorCount) = contName
   bgColor(monitorCount) = bgCol
-  innerColor(monitorCount) = innerCol
+  innerColor(monitorCount) = $FFFFFF
   neutralInnerColor(monitorCount) = $FFFFFF
   patternCount(monitorCount) = 0
   tooltip(monitorCount) = "Docker: " + contName
@@ -93,40 +154,112 @@ Procedure RemoveMonitor(index)
   monitorCount - 1
 EndProcedure
 
-Procedure AddPatternToMonitor(index, pat.s, color.l)
-  If index < 0 Or index >= monitorCount
-    ProcedureReturn
+Procedure AddMonitorDialog()
+  If OpenWindow(1, 0, 0, 380, 130, "Add Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+    StringGadget(10, 10, 10, 360, 24, "") ; container name
+    SetActiveGadget(10)
+    
+    TextGadget(11, 10, 53, 100, 24, "Background Color:")
+    ContainerGadget(14, 120, 50, 24, 24, #PB_Container_BorderLess)
+    CloseGadgetList()
+    ButtonGadget(12, 150, 50, 100, 24, "Choose...")
+    
+    ButtonGadget(13, 80, 100, 80, 24, "OK")
+    ButtonGadget(15, 170, 100, 80, 24, "Cancel")
+    
+    bgCol = RGB(200, 200, 200)
+    SetGadgetColor(14, #PB_Gadget_BackColor, bgCol)
+    DisableGadget(13, #True)
+    Repeat
+      Event = WaitWindowEvent()
+      If Event = #PB_Event_Gadget
+        Select EventGadget()
+          Case 10 ; pattern input changed
+            If GetGadgetText(10) = ""
+              DisableGadget(13, #True)
+            Else
+              DisableGadget(13, #False)
+            EndIf
+          Case 12 ; choose background color
+            bgCol = ColorRequester(bgCol)
+            SetGadgetColor(14, #PB_Gadget_BackColor, bgCol)
+            
+          Case 13 ; OK
+            container$ = GetGadgetText(10)
+            If container$ <> ""
+              AddMonitor(container$, bgCol)
+              UpdateMonitorList()
+              SetActiveGadget(0)
+              SetGadgetItemState(0,monitorCount-1,#PB_ListIcon_Selected)
+              UpdateButtonStates()
+              Event = #PB_Event_CloseWindow
+            EndIf
+            
+          Case 15 ; Cancel
+            Event = #PB_Event_CloseWindow
+        EndSelect
+      EndIf
+    Until Event = #PB_Event_CloseWindow
+    
+    CloseWindow(1)
   EndIf
-  If patternCount(index) >= #MAX_PATTERNS
-    ProcedureReturn
-  EndIf
-  patterns(index, patternCount(index)) = pat
-  patternColor(index, patternCount(index)) = color
-  patternCount(index) + 1
 EndProcedure
 
-Procedure UpdateMonitorIconOnMatch(index, matchColor)
-  CreateMonitorIcon(index, matchColor, bgColor(index))
-  lastMatchTime(index) = ElapsedMilliseconds()
-  SysTrayIconToolTip(trayID(index), tooltip(index) + " (last match: " + FormatDate("%Y-%m-%d %H:%M:%S", Date()) + ")")
-EndProcedure
-
-Procedure CheckDockerOutput(index)
-  If dockerProgramID(index) = 0
-    ProcedureReturn
-  EndIf
-  While AvailableProgramOutput(dockerProgramID(index)) > 0
-    line$ = ReadProgramString(dockerProgramID(index))
-    If line$ <> ""
-      For p = 0 To patternCount(index)-1
-        If FindString(line$, patterns(index,p), 1) > 0
-          UpdateMonitorIconOnMatch(index, patternColor(index,p))
-          Break
-        EndIf
-      Next
+Procedure EditMonitorDialog(selIndex)
+  container$ = containerName(selIndex)
+  bgCol      = bgColor(selIndex)
+  
+  If OpenWindow(5, 0, 0, 380, 130, "Edit Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+    StringGadget(50, 10, 10, 360, 24, container$) ; container name
+    SetActiveGadget(50)
+    
+    TextGadget(51, 10, 53, 100, 24, "Background Color:")
+    ContainerGadget(54, 120, 50, 24, 24, #PB_Container_BorderLess)
+    CloseGadgetList()
+    ButtonGadget(52, 150, 50, 100, 24, "Choose...")
+    
+    ButtonGadget(53, 80, 100, 80, 24, "OK")
+    ButtonGadget(55, 170, 100, 80, 24, "Cancel")
+    
+    SetGadgetColor(54, #PB_Gadget_BackColor, bgCol)
+    If container$ = ""
+      DisableGadget(53, #True)
     EndIf
-  Wend
+    
+    Repeat
+      Event = WaitWindowEvent()
+      If Event = #PB_Event_Gadget
+        Select EventGadget()
+          Case 50 ; container input changed
+            If GetGadgetText(50) = ""
+              DisableGadget(53, #True)
+            Else
+              DisableGadget(53, #False)
+            EndIf
+            
+          Case 52 ; choose background color
+            bgCol = ColorRequester(bgCol)
+            SetGadgetColor(54, #PB_Gadget_BackColor, bgCol)
+            
+          Case 53 ; OK
+            containerName(selIndex)      = GetGadgetText(50)
+            bgColor(selIndex)  = bgCol
+            UpdateMonitorList()
+            
+            
+            Event = #PB_Event_CloseWindow
+            
+          Case 55 ; Cancel
+            Event = #PB_Event_CloseWindow
+        EndSelect
+      EndIf
+    Until Event = #PB_Event_CloseWindow
+    
+    CloseWindow(5)
+  EndIf
 EndProcedure
+
+
 
 Procedure RedrawTimeoutIcons()
   For i = 0 To monitorCount-1
@@ -139,103 +272,18 @@ Procedure RedrawTimeoutIcons()
   Next
 EndProcedure
 
-Procedure UpdateButtonStates()
-  If monitorCount = 0
-    DisableGadget(2, #True)
-    DisableGadget(3, #True)
-    DisableGadget(4, #True)
-    DisableGadget(5, #True)
+
+
+
+
+Procedure  UpdatePatternButtonStates()
+  selIndex = GetGadgetState(40)
+  If selIndex >= 0
+    DisableGadget(42, #False)
+    DisableGadget(43, #False)
   Else
-    selIndex = GetGadgetState(0)
-    If selIndex >= 0
-      DisableGadget(2, #False)
-      DisableGadget(3, #False)
-      DisableGadget(4, #False)
-      DisableGadget(5, #False)
-    Else
-      DisableGadget(2, #True)
-      DisableGadget(3, #True)
-      DisableGadget(4, #True)
-      DisableGadget(5, #True)
-    EndIf
-  EndIf
-EndProcedure
-
-If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
-  ListIconGadget(0, 10, 10, 300, 280,"Container",290,#PB_ListIcon_FullRowSelect)
-  ButtonGadget(1, 325, 10, 80, 24, "Add")
-  ButtonGadget(2, 325, 40, 80, 24, "Remove")
-  ButtonGadget(3, 325, 80, 80, 24, "Start")
-  ButtonGadget(4, 325, 110, 80, 24, "Stop")
-  ButtonGadget(5, 325, 150, 80, 24, "Edit Patterns")
-EndIf
-
-Procedure UpdateMonitorList()
-  ClearGadgetItems(0)
-  For i = 0 To monitorCount-1
-    AddGadgetItem(0, -1, containerName(i))
-  Next
-  UpdateButtonStates()
-EndProcedure
-
-Procedure OpenAddMonitorDialog()
-  If OpenWindow(1, 100, 100, 360, 130, "Add Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
-    StringGadget(10, 10, 10, 340, 24, "")
-    SetActiveGadget(10)
-    ButtonGadget(11, 170, 50, 180, 24, "Set icon background color")
-    ButtonGadget(13, 80,90,80,24,"OK")
-    ButtonGadget(14,170,90,80,24,"Cancel")
-    bgSel = RGB(0,160,200)
-    innerSel = RGB(255,255,255)
-    Repeat
-      Event = WaitWindowEvent()
-      If Event = #PB_Event_Gadget
-        Select EventGadget()
-          Case 11: bgSel = ColorRequester(bgSel)
-          Case 13
-            name$ = GetGadgetText(10)
-            If name$ <> ""
-              AddMonitorInternal(name$, bgSel, innerSel)
-              UpdateMonitorList()
-              CloseWindow(1)
-              Event = #PB_Event_CloseWindow
-            EndIf
-          Case 14: CloseWindow(1)
-            Event = #PB_Event_CloseWindow
-        EndSelect
-      EndIf
-    Until Event = #PB_Event_CloseWindow
-  EndIf
-EndProcedure
-
-Procedure OpenAddPatternDialog(index)
-  If index < 0 Or index >= monitorCount
-    ProcedureReturn
-  EndIf
-  If OpenWindow(2,150,150,360,160,"Add Pattern to " + containerName(index),#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
-    StringGadget(20,10,10,340,24,"")
-    ButtonGadget(21,200,50,70,24,"Pick Color")
-    ButtonGadget(22,80,100,80,24,"OK")
-    ButtonGadget(23,170,100,80,24,"Cancel")
-    pickCol = RGB(255,0,0)
-    SetActiveGadget(20)
-    Repeat
-      Event = WaitWindowEvent()
-      If Event = #PB_Event_Gadget
-        Select EventGadget()
-          Case 21: pickCol = ColorRequester(pickCol)
-          Case 22
-            pat$ = GetGadgetText(20)
-            If pat$ <> ""
-              AddPatternToMonitor(index, pat$, pickCol)
-              CloseWindow(2)
-              Event = #PB_Event_CloseWindow
-            EndIf
-          Case 23: CloseWindow(2)
-            Event = #PB_Event_CloseWindow
-        EndSelect
-      EndIf
-    Until Event = #PB_Event_CloseWindow
+    DisableGadget(42, #True)
+    DisableGadget(43, #True)
   EndIf
 EndProcedure
 
@@ -243,65 +291,169 @@ Procedure UpdatePatternList(index)
   ClearGadgetItems(40)
   For p = 0 To patternCount(index)-1
     AddGadgetItem(40, -1, patterns(index,p))
-    SetGadgetItemText(40, p, Right("000000" + Hex(patternColor(index,p)),6), 1)
+    SetListItemColor(40, p, patternColor(index,p))
   Next
 EndProcedure
 
-Procedure OpenEditPatternsDialog(index)
+Procedure AddPattern(index, pat.s, color.l)
   If index < 0 Or index >= monitorCount
     ProcedureReturn
   EndIf
-  If OpenWindow(4,150,150,400,250,"Edit Patterns for " + containerName(index),#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
-    ListIconGadget(40,10,10,380,150,"Pattern",200,#PB_ListIcon_FullRowSelect)
-    AddGadgetColumn(40,1,"Color",150)
-    ButtonGadget(41,10,170,80,24,"Add")
-    ButtonGadget(42,100,170,80,24,"Edit")
-    ButtonGadget(43,190,170,80,24,"Remove")
-    ButtonGadget(44,280,170,80,24,"Close")
+  If patternCount(index) >= #MAX_PATTERNS
+    ProcedureReturn
+  EndIf
+  patterns(index, patternCount(index)) = pat
+  patternColor(index, patternCount(index)) = color
+  patternCount(index) + 1
+EndProcedure
+
+Procedure AddPatternDialog(monitorIndex)
+  If OpenWindow(2, 0, 0, 380, 130, "Add Log Status Pattern", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+    StringGadget(20, 10, 10, 360, 24, "") ; pattern
+    SetActiveGadget(20)
+    
+    TextGadget(21, 10, 53, 100, 24, "Pattern Color:")
+    ContainerGadget(24, 95, 50, 24, 24, #PB_Container_BorderLess)
+    CloseGadgetList()
+    ButtonGadget(22, 125, 50, 100, 24, "Choose...")
+    
+    ButtonGadget(23, 80, 100, 80, 24, "OK")
+    ButtonGadget(25, 170, 100, 80, 24, "Cancel")
+    
+    DisableGadget(23, #True) ; start disabled
+    
+    patCol = RGB(255, 0, 0)
+    SetGadgetColor(24, #PB_Gadget_BackColor, patCol)
+    
+    Repeat
+      Event = WaitWindowEvent()
+      Select Event
+        Case #PB_Event_Gadget
+          Select EventGadget()
+            Case 20 ; pattern input changed
+              If GetGadgetText(20) = ""
+                DisableGadget(23, #True)
+              Else
+                DisableGadget(23, #False)
+              EndIf
+              
+            Case 22 ; choose pattern color
+              patCol = ColorRequester(patCol)
+              SetGadgetColor(24, #PB_Gadget_BackColor, patCol)
+              
+            Case 23 ; OK
+              pattern$ = GetGadgetText(20)
+              If pattern$ <> ""
+                AddPattern(monitorIndex, pattern$, patCol)
+                UpdatePatternList(monitorIndex)
+                
+                Debug "ADD PATERN"
+                Debug patternCount(monitorIndex)-1
+                
+                SetActiveWindow(4)
+                SetActiveGadget(40)
+                SetGadgetItemState(40,patternCount(monitorIndex)-1,#PB_ListIcon_Selected)
+                
+                Event = #PB_Event_CloseWindow
+              EndIf
+              
+            Case 25 ; Cancel
+              Event = #PB_Event_CloseWindow
+          EndSelect
+      EndSelect
+    Until Event = #PB_Event_CloseWindow
+    
+    CloseWindow(2)
+  EndIf
+EndProcedure
+
+
+
+Procedure EditPatternDialog(index,selIndex)
+  pattern$ = patterns(index,selIndex)
+  patCol   = patternColor(index,selIndex)
+  
+  If OpenWindow(3, 0, 0, 380, 130, "Edit Log Status Pattern", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+    StringGadget(30, 10, 10, 360, 24, pattern$) ; pattern
+    SetActiveGadget(30)
+    
+    TextGadget(31, 10, 53, 100, 24, "Pattern Color:")
+    ContainerGadget(34, 95, 50, 24, 24, #PB_Container_BorderLess)
+    CloseGadgetList()
+    ButtonGadget(32, 125, 50, 100, 24, "Choose...")
+    
+    ButtonGadget(33, 80, 100, 80, 24, "OK")
+    ButtonGadget(35, 170, 100, 80, 24, "Cancel")
+    
+    If pattern$ = ""
+      DisableGadget(33, #True)
+    EndIf
+    
+    SetGadgetColor(34, #PB_Gadget_BackColor, patCol)
+    
+    Repeat
+      Event = WaitWindowEvent()
+      Select Event
+        Case #PB_Event_Gadget
+          Select EventGadget()
+            Case 30 ; pattern input changed
+              If GetGadgetText(30) = ""
+                DisableGadget(33, #True)
+              Else
+                DisableGadget(33, #False)
+              EndIf
+              
+            Case 32 ; choose pattern color
+              patCol = ColorRequester(patCol)
+              SetGadgetColor(34, #PB_Gadget_BackColor, patCol)
+              
+            Case 33 ; OK
+              patterns(index, selIndex)    = GetGadgetText(30)
+              patternColor(index, selIndex) = patCol
+              Event = #PB_Event_CloseWindow
+              
+            Case 35 ; Cancel
+              Event = #PB_Event_CloseWindow
+          EndSelect
+      EndSelect
+    Until Event = #PB_Event_CloseWindow
+    
+    UpdatePatternList(monitorIndex)
+    SetActiveGadget(40)        
+    SetGadgetItemState(40,selIndex,#PB_ListIcon_Selected)
+    
+    CloseWindow(3)
+  EndIf
+EndProcedure
+
+
+Procedure EditPatternsDialog(index)
+  If index < 0 Or index >= monitorCount
+    ProcedureReturn
+  EndIf
+  If OpenWindow(4,150,150,420,200,"Log Status Patterns",#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+    ListIconGadget(40,10, 10, 300, 180,"Log Pattern",180,#PB_ListIcon_FullRowSelect|#PB_ListIcon_AlwaysShowSelection)
+    ButtonGadget(41, 325, 10, 80, 24, "Add")
+    ButtonGadget(43, 325, 40, 80, 24, "Remove")
+    ButtonGadget(42, 325, 80, 80, 24, "Edit")
     
     UpdatePatternList(index)
-    
+    UpdatePatternButtonStates()
     Repeat
       Event = WindowEvent()
       If Event = #PB_Event_Gadget
         Select EventGadget()
+          Case 40:             UpdatePatternButtonStates()
+            
           Case 41 ; Add pattern
-            OpenAddPatternDialog(index)
-            UpdatePatternList(index)
+            AddPatternDialog(index)
+            UpdatePatternButtonStates()
+            
           Case 42 ; Edit selected
             selIndex = GetGadgetState(40)
             If selIndex >= 0
-              pat$ = GetGadgetItemText(40, selIndex, 0)
-              col$ = GetGadgetItemText(40, selIndex, 1)
-              colVal = Val("$" + col$)
-              If OpenWindow(5,200,200,360,160,"Edit Pattern",#PB_Window_SystemMenu)
-                StringGadget(50,10,10,340,24,pat$)
-                ButtonGadget(51,200,50,70,24,"Pick Color")
-                ButtonGadget(52,80,100,80,24,"OK")
-                ButtonGadget(53,170,100,80,24,"Cancel")
-                pickCol = colVal
-                SetActiveGadget(50)
-                Repeat
-                  e2 = WaitWindowEvent()
-                  If e2 = #PB_Event_Gadget
-                    Select EventGadget()
-                      Case 51: pickCol = ColorRequester(pickCol)
-                      Case 52
-                        newPat$ = GetGadgetText(50)
-                        If newPat$ <> ""
-                          patterns(index, selIndex) = newPat$
-                          patternColor(index, selIndex) = pickCol
-                          CloseWindow(5)
-                          e2 = #PB_Event_CloseWindow
-                        EndIf
-                      Case 53: CloseWindow(5)
-                        e2 = #PB_Event_CloseWindow
-                    EndSelect
-                  EndIf
-                Until e2 = #PB_Event_CloseWindow
-              EndIf
+              EditPatternDialog(index,selIndex)
             EndIf
-            UpdatePatternList(index)
           Case 43 ; Remove selected
             selIndex = GetGadgetState(40)
             If selIndex >= 0
@@ -312,16 +464,18 @@ Procedure OpenEditPatternsDialog(index)
               patternCount(index) - 1
             EndIf
             UpdatePatternList(index)
-          Case 44: CloseWindow(4)
+            UpdatePatternButtonStates()
+          Case 44: 
             Event = #PB_Event_CloseWindow
         EndSelect
       EndIf
       Delay(#UPDATE_INTERVAL)
     Until Event = #PB_Event_CloseWindow
-   EndIf
+    CloseWindow(4)
+  EndIf
 EndProcedure
 
-Procedure OpenEditColorsDialog(index)
+Procedure EditColorsDialog(index)
   If index < 0 Or index >= monitorCount
     ProcedureReturn
   EndIf
@@ -339,13 +493,186 @@ Procedure OpenEditColorsDialog(index)
           Case 31: neutralInnerColor(index) = ColorRequester(neutralInnerColor(index))
           Case 32: innerColor(index) = ColorRequester(innerColor(index))
           Case 33: CreateMonitorIcon(index, innerColor(index), bgColor(index))
-          Case 34: CloseWindow(3)
+          Case 34: 
             Event = #PB_Event_CloseWindow
         EndSelect
       EndIf
     Until Event = #PB_Event_CloseWindow
+    CloseWindow(3)
   EndIf 
 EndProcedure
+
+Procedure.s TryDockerDefaultPaths()
+  Debug "TryDockerDefaultPaths"
+  Protected dockerPaths.s
+  Protected dockerPath.s
+  Protected i = 1
+  Protected path$ = ""
+  Select #PB_Compiler_OS
+    Case #PB_OS_Windows
+      dockerPaths = "C:\Program Files\Docker\Docker\resources\bin\docker.exe|C:\Program Files\Docker\Docker\docker.exe|C:\Program Files\Docker\docker.exe|C:\Program Files (x86)\Docker\Docker\resources\bin\docker.exe|C:\Program Files (x86)\Docker\Docker\docker.exe"
+    Case #PB_OS_Linux
+      dockerPaths = "/usr/bin/docker|/usr/local/bin/docker|/snap/bin/docker|/bin/docker"
+    Case #PB_OS_MacOS
+      dockerPaths = "/usr/local/bin/docker|/usr/bin/docker|/opt/homebrew/bin/docker|/Applications/Docker.app/Contents/Resources/bin/docker"
+  EndSelect
+  ; check each path
+  Repeat 
+    path$ = StringField(dockerPaths, i, "|")
+    Debug path
+    If path$ <> "" And FileSize(path$)
+      ProcedureReturn path$
+    EndIf
+    i + 1
+  Until Trim(path$) = ""
+  ProcedureReturn "docker" ; not found
+EndProcedure
+
+Procedure.s GetDockerExcutable()
+  Debug "GetDockerPath"
+  Protected pathEnv.s = GetEnvironmentVariable("PATH")
+  folder.s = ""
+  index = 1
+  Repeat
+    folder = StringField(pathEnv, index,";")
+    Protected candidate.s = folder + "\docker.exe"
+    If FileSize(candidate) > 0
+      ProcedureReturn candidate
+    EndIf
+    candidate = folder + "\Docker.exe"
+    If FileSize(candidate) > 0
+      ProcedureReturn candidate
+    EndIf
+    index+1
+  Until folder = ""
+  
+  
+  ProcedureReturn TryDockerDefaultPaths() ; not found
+EndProcedure
+
+
+Procedure StartDockerFollow(index)
+  If dockerProgramID(index) <> 0
+    CloseProgram(dockerProgramID(index))
+    dockerProgramID(index) = 0
+  EndIf
+
+  
+
+  
+  dockerExecutable$ = GetDockerExcutable()
+  Debug dockerExecutable$
+ 
+  cmd$ = "cmd.exe"
+  
+  containerName$ = "mycontainer"
+
+  dockerCommand$ = "/k " + Chr(34) + dockerExecutable$  +Chr(34) +" logs --follow " + containerName(index)
+  
+  Debug dockerCommand
+
+  dockerProgramID(index) = RunProgram(cmd$, dockerCommand$, "", #PB_Program_Open   |#PB_Program_Write |#PB_Program_Read |#PB_Program_Error | #PB_Program_Hide)
+  dockerProgramID = dockerProgramID(index)
+
+;   If dockerProgramID
+;     Debug "Program started successfully"
+;     
+;     ; You MUST read the output!
+;     While ProgramRunning(dockerProgramID)
+;       Debug "ProgramRunning NOW READING"
+;       If AvailableProgramOutput(dockerProgramID)
+;         Debug "ProgramRunning AvailableProgramOutput"
+;         
+;         error$ = ReadProgramError(dockerProgramID)
+;         If error$ = ""
+;           output$ = ReadProgramString(dockerProgramID)
+;         EndIf 
+;         Debug "Docker error$: " + error$
+;        
+;         Debug "Docker output$: " + output$
+;       EndIf
+;       Debug "ProgramRunning STOPPED READING"
+;       Delay(10)
+;     Wend
+;     Debug "Program finished"
+;     
+;     ; Read any remaining output after program finishes
+;     While AvailableProgramOutput(dockerProgramID)
+;       output$ = ReadProgramString(dockerProgramID)
+;       Debug "Docker output: " + output$
+;     Wend
+;       Debug "Program after output"
+;   
+;     CloseProgram(dockerProgramID)
+;   Else
+;     Debug "Failed to start program!"
+;   EndIf
+;     
+  If trayID(index) = 0
+    CreateMonitorIcon(index, innerColor(index), bgColor(index))
+  EndIf
+  containerStarted(index) = #True
+  SetListItemStarted(index,#True)
+EndProcedure
+
+Procedure StopDockerFollow(index)
+  If dockerProgramID(selIndex) <> 0
+    CloseProgram(dockerProgramID(selIndex))
+    dockerProgramID(selIndex) = 0
+  EndIf
+  If trayID(selIndex) <> 0
+    RemoveSysTrayIcon(trayID(selIndex))
+    trayID(selIndex) = 0
+  EndIf
+  containerStarted(index) = #False
+  SetListItemStarted(selIndex,#False)
+  SetActiveGadget(0)
+  SetGadgetItemState(0, selIndex, #PB_ListIcon_Selected)
+  UpdateButtonStates()
+EndProcedure
+
+
+Procedure UpdateMonitorIconOnMatch(index, matchColor)
+  CreateMonitorIcon(index, matchColor, bgColor(index))
+  lastMatchTime(index) = ElapsedMilliseconds()
+  SysTrayIconToolTip(trayID(index), tooltip(index) + " (last match: " + FormatDate("%Y-%m-%d %H:%M:%S", Date()) + ")")
+EndProcedure
+
+Procedure CheckDockerOutput(index)
+  
+  If dockerProgramID(index) = 0
+    ProcedureReturn
+  EndIf
+  
+  While IsProgram(dockerProgramID(index)) And AvailableProgramOutput(dockerProgramID(index)) > 0
+    error$ = ReadProgramError(dockerProgramID(index))
+    If error$ = ""
+      line$ = ReadProgramString(dockerProgramID(index))
+      Debug line$
+      If line$ <> ""
+        For p = 0 To patternCount(index)-1
+          If FindString(line$, patterns(index,p), 1) > 0
+            UpdateMonitorIconOnMatch(index, patternColor(index,p))
+            Break
+          EndIf
+        Next
+      EndIf
+    EndIf
+  Wend
+EndProcedure
+
+
+If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
+  ListIconGadget(0, 10, 10, 300, 280,"Container",290,#PB_ListIcon_FullRowSelect)
+  ButtonGadget(1, 325, 10, 80, 24, "Add")
+  ButtonGadget(6, 325, 40, 80, 24, "Edit")
+  ButtonGadget(2, 325, 70, 80, 24, "Remove")
+  ButtonGadget(5, 325, 110, 80, 24, "Log Status")
+  ButtonGadget(3, 325, 150, 80, 24, "Start")
+  ButtonGadget(4, 325, 180, 80, 24, "Stop")
+EndIf
+
+
 
 UpdateMonitorList()
 
@@ -356,7 +683,7 @@ Repeat
       Case #PB_Event_Gadget
         Select EventGadget()
           Case 0: UpdateButtonStates()
-          Case 1: OpenAddMonitorDialog()
+          Case 1: AddMonitorDialog()
           Case 2:
             selIndex = GetGadgetState(0)
             If selIndex >= 0
@@ -367,30 +694,38 @@ Repeat
             selIndex = GetGadgetState(0)
             If selIndex >= 0
               StartDockerFollow(selIndex)
+              SetActiveGadget(0)
+              SetGadgetItemState(0, selIndex, #PB_ListIcon_Selected)
+              UpdateButtonStates()
             EndIf
           Case 4:
             selIndex = GetGadgetState(0)
             If selIndex >= 0
-              If dockerProgramID(selIndex) <> 0
-                CloseProgram(dockerProgramID(selIndex))
-                dockerProgramID(selIndex) = 0
-              EndIf
-              If trayID(selIndex) <> 0
-                RemoveSysTrayIcon(trayID(selIndex))
-                trayID(selIndex) = 0
-              EndIf
-              SetGadgetItemColor(0, selIndex, #PB_Gadget_BackColor, RGB(255,255,255))
-              SetGadgetItemColor(0, selIndex, #PB_Gadget_FrontColor, RGB(0,0,0))
+              StopDockerFollow(selIndex)
             EndIf
           Case 5:
             selIndex = GetGadgetState(0)
             If selIndex >= 0
-              OpenEditPatternsDialog(selIndex)
+              EditPatternsDialog(selIndex)
+              SetActiveGadget(0)
+              SetGadgetItemState(0, selIndex, #PB_ListIcon_Selected)
+              UpdateButtonStates()
             EndIf
           Case 6:
             selIndex = GetGadgetState(0)
             If selIndex >= 0
-              OpenEditColorsDialog(selIndex)
+              EditMonitorDialog(selIndex)
+              SetActiveGadget(0)
+              SetGadgetItemState(0, selIndex, #PB_ListIcon_Selected)
+              UpdateButtonStates()
+            EndIf
+          Case 7: ;UNUSED
+            selIndex = GetGadgetState(0)
+            If selIndex >= 0
+              EditColorsDialog(selIndex)
+              SetActiveGadget(0)
+              SetGadgetItemState(0, selIndex, #PB_ListIcon_Selected)
+              UpdateButtonStates()
             EndIf
         EndSelect
       Case #PB_Event_SysTray
@@ -410,17 +745,19 @@ Repeat
         End
     EndSelect
   EndIf
-
+  
   For i = 0 To monitorCount-1
     CheckDockerOutput(i)
   Next
   RedrawTimeoutIcons()
   Delay(#UPDATE_INTERVAL)
 Until 0
-
+CloseWindow(0)
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 245
-; FirstLine = 237
-; Folding = ---
+; CursorPosition = 527
+; FirstLine = 505
+; Folding = ----
+; Optimizer
+; EnableThread
 ; EnableXP
 ; DPIAware
