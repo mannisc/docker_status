@@ -20,20 +20,34 @@ Global Dim patterns.s(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim patternColor.l(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 
 Procedure CreateMonitorIcon(index, innerCol, bgCol)
-  If CreateImage(infoImageID(index), #ICON_SIZE, #ICON_SIZE)
-    If StartDrawing(ImageOutput(infoImageID(index)))
-      Box(0, 0, #ICON_SIZE, #ICON_SIZE, $000000)
-      Circle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2, bgCol)
-      Circle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 5, innerCol)
-      StopDrawing()
-    EndIf
+ If CreateImage(infoImageID(index), #ICON_SIZE, #ICON_SIZE, 32)
+  If StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
+    
+    ; Fill background black
+    VectorSourceColor(RGBA(0, 0, 0, 255))
+    AddPathBox(0, 0, #ICON_SIZE, #ICON_SIZE)
+    FillPath()
+    
+    ; Outer circle
+    VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
+    AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1)
+    FillPath()
+    
+    ; Inner circle
+    VectorSourceColor(RGBA(Red(innerCol), Green(innerCol), Blue(innerCol), 255))
+    AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1 - 5)
+    FillPath()
+    
+    StopVectorDrawing()
   EndIf
+EndIf
+
   If trayID(index) = 0
     trayID(index) = index + 1
     AddSysTrayIcon(trayID(index), WindowID(0), ImageID(infoImageID(index)))
     SysTrayIconToolTip(trayID(index), tooltip(index))
   Else
-    ChangeSysTrayIcon(trayID(index), infoImageID(index))
+    ChangeSysTrayIcon(trayID(index),ImageID(infoImageID(index)))
   EndIf
 EndProcedure
 
@@ -47,6 +61,7 @@ Procedure SetListItemStarted(index,started)
     FillVectorOutput()
     If started
       ; Play triangle coordinates (scaled to 32x32)
+      
       MovePathCursor(8, 6)
       AddPathLine(24, 16)
       AddPathLine(8, 26)
@@ -54,6 +69,14 @@ Procedure SetListItemStarted(index,started)
       
       VectorSourceColor(RGBA(0,0,0,255)) ; black
       FillPath()
+      
+      MovePathCursor(8, 6)
+      AddPathLine(24, 16)
+      AddPathLine(8, 26)
+      ClosePath()
+      ; Stroke (outline) triangle in white
+      VectorSourceColor(RGBA(255, 255, 255, 255))
+      StrokePath(3) 
     EndIf
     StopVectorDrawing()
     
@@ -61,6 +84,9 @@ Procedure SetListItemStarted(index,started)
   EndIf
 EndProcedure
 
+Enumeration KeyboardEvents
+  #EventOk
+EndEnumeration
 
 
 
@@ -142,6 +168,7 @@ Procedure RemoveMonitor(index)
     neutralInnerColor(i) = neutralInnerColor(i + 1)
     infoImageID(i) = infoImageID(i + 1)
     trayID(i) = trayID(i + 1)
+    containerStarted(i) = containerStarted(i + 1)
     dockerProgramID(i) = dockerProgramID(i + 1)
     patternCount(i) = patternCount(i + 1)
     tooltip(i) = tooltip(i + 1)
@@ -154,10 +181,27 @@ Procedure RemoveMonitor(index)
   monitorCount - 1
 EndProcedure
 
+
+Procedure CloseAddMonitorDialog(bgCol)
+  container$ = GetGadgetText(10)
+            If container$ <> ""
+              AddMonitor(container$, bgCol)
+              UpdateMonitorList()
+              SetActiveGadget(0)
+              SetGadgetItemState(0,monitorCount-1,#PB_ListIcon_Selected)
+              UpdateButtonStates()
+              
+            EndIf
+            
+  EndProcedure
+
+
 Procedure AddMonitorDialog()
   If OpenWindow(1, 0, 0, 380, 130, "Add Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
     StringGadget(10, 10, 10, 360, 24, "") ; container name
     SetActiveGadget(10)
+    
+    AddKeyboardShortcut(1, #PB_Shortcut_Return, #EventOk)
     
     TextGadget(11, 10, 53, 100, 24, "Background Color:")
     ContainerGadget(14, 120, 50, 24, 24, #PB_Container_BorderLess)
@@ -172,7 +216,15 @@ Procedure AddMonitorDialog()
     DisableGadget(13, #True)
     Repeat
       Event = WaitWindowEvent()
-      If Event = #PB_Event_Gadget
+      If   Event = #PB_Event_Menu
+        Select EventMenu()
+          Case  #EventOk:
+           
+            CloseAddMonitorDialog(bgCol)
+            Event = #PB_Event_CloseWindow
+        EndSelect
+        
+      ElseIf Event = #PB_Event_Gadget
         Select EventGadget()
           Case 10 ; pattern input changed
             If GetGadgetText(10) = ""
@@ -185,19 +237,12 @@ Procedure AddMonitorDialog()
             SetGadgetColor(14, #PB_Gadget_BackColor, bgCol)
             
           Case 13 ; OK
-            container$ = GetGadgetText(10)
-            If container$ <> ""
-              AddMonitor(container$, bgCol)
-              UpdateMonitorList()
-              SetActiveGadget(0)
-              SetGadgetItemState(0,monitorCount-1,#PB_ListIcon_Selected)
-              UpdateButtonStates()
-              Event = #PB_Event_CloseWindow
-            EndIf
-            
+            CloseAddMonitorDialog(bgCol)
+            Event = #PB_Event_CloseWindow
           Case 15 ; Cancel
             Event = #PB_Event_CloseWindow
         EndSelect
+        
       EndIf
     Until Event = #PB_Event_CloseWindow
     
@@ -556,58 +601,58 @@ Procedure StartDockerFollow(index)
     CloseProgram(dockerProgramID(index))
     dockerProgramID(index) = 0
   EndIf
-
   
-
+  
+  
   
   dockerExecutable$ = GetDockerExcutable()
   Debug dockerExecutable$
- 
+  
   cmd$ = "cmd.exe"
   
   containerName$ = "mycontainer"
-
+  
   dockerCommand$ = "/k " + Chr(34) + dockerExecutable$  +Chr(34) +" logs --follow " + containerName(index)
   
   Debug dockerCommand
-
+  
   dockerProgramID(index) = RunProgram(cmd$, dockerCommand$, "", #PB_Program_Open   |#PB_Program_Write |#PB_Program_Read |#PB_Program_Error | #PB_Program_Hide)
   dockerProgramID = dockerProgramID(index)
-
-;   If dockerProgramID
-;     Debug "Program started successfully"
-;     
-;     ; You MUST read the output!
-;     While ProgramRunning(dockerProgramID)
-;       Debug "ProgramRunning NOW READING"
-;       If AvailableProgramOutput(dockerProgramID)
-;         Debug "ProgramRunning AvailableProgramOutput"
-;         
-;         error$ = ReadProgramError(dockerProgramID)
-;         If error$ = ""
-;           output$ = ReadProgramString(dockerProgramID)
-;         EndIf 
-;         Debug "Docker error$: " + error$
-;        
-;         Debug "Docker output$: " + output$
-;       EndIf
-;       Debug "ProgramRunning STOPPED READING"
-;       Delay(10)
-;     Wend
-;     Debug "Program finished"
-;     
-;     ; Read any remaining output after program finishes
-;     While AvailableProgramOutput(dockerProgramID)
-;       output$ = ReadProgramString(dockerProgramID)
-;       Debug "Docker output: " + output$
-;     Wend
-;       Debug "Program after output"
-;   
-;     CloseProgram(dockerProgramID)
-;   Else
-;     Debug "Failed to start program!"
-;   EndIf
-;     
+  
+  ;   If dockerProgramID
+  ;     Debug "Program started successfully"
+  ;     
+  ;     ; You MUST read the output!
+  ;     While ProgramRunning(dockerProgramID)
+  ;       Debug "ProgramRunning NOW READING"
+  ;       If AvailableProgramOutput(dockerProgramID)
+  ;         Debug "ProgramRunning AvailableProgramOutput"
+  ;         
+  ;         error$ = ReadProgramError(dockerProgramID)
+  ;         If error$ = ""
+  ;           output$ = ReadProgramString(dockerProgramID)
+  ;         EndIf 
+  ;         Debug "Docker error$: " + error$
+  ;        
+  ;         Debug "Docker output$: " + output$
+  ;       EndIf
+  ;       Debug "ProgramRunning STOPPED READING"
+  ;       Delay(10)
+  ;     Wend
+  ;     Debug "Program finished"
+  ;     
+  ;     ; Read any remaining output after program finishes
+  ;     While AvailableProgramOutput(dockerProgramID)
+  ;       output$ = ReadProgramString(dockerProgramID)
+  ;       Debug "Docker output: " + output$
+  ;     Wend
+  ;       Debug "Program after output"
+  ;   
+  ;     CloseProgram(dockerProgramID)
+  ;   Else
+  ;     Debug "Failed to start program!"
+  ;   EndIf
+  ;     
   If trayID(index) = 0
     CreateMonitorIcon(index, innerColor(index), bgColor(index))
   EndIf
@@ -652,6 +697,7 @@ Procedure CheckDockerOutput(index)
       If line$ <> ""
         For p = 0 To patternCount(index)-1
           If FindString(line$, patterns(index,p), 1) > 0
+            Debug "FOUND "+p
             UpdateMonitorIconOnMatch(index, patternColor(index,p))
             Break
           EndIf
@@ -754,9 +800,9 @@ Repeat
 Until 0
 CloseWindow(0)
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 527
-; FirstLine = 505
-; Folding = ----
+; CursorPosition = 42
+; FirstLine = 14
+; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
