@@ -19,37 +19,33 @@ Global Dim containerStarted.b(#MAX_CONTAINERS-1)
 Global Dim patterns.s(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim patternColor.l(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 
-Procedure CreateMonitorIcon(index, innerCol, bgCol)
- If CreateImage(infoImageID(index), #ICON_SIZE, #ICON_SIZE, 32)
-  If StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
-    
-    ; Fill background black
-    VectorSourceColor(RGBA(0, 0, 0, 255))
-    AddPathBox(0, 0, #ICON_SIZE, #ICON_SIZE)
-    FillPath()
-    
-    ; Outer circle
-    VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
-    AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1)
-    FillPath()
-    
-    ; Inner circle
-    VectorSourceColor(RGBA(Red(innerCol), Green(innerCol), Blue(innerCol), 255))
-    AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1 - 5)
-    FillPath()
-    
-    StopVectorDrawing()
-  EndIf
-EndIf
 
-  If trayID(index) = 0
-    trayID(index) = index + 1
-    AddSysTrayIcon(trayID(index), WindowID(0), ImageID(infoImageID(index)))
-    SysTrayIconToolTip(trayID(index), tooltip(index))
-  Else
-    ChangeSysTrayIcon(trayID(index),ImageID(infoImageID(index)))
+Procedure CreateMonitorIcon(index, innerCol, bgCol)
+  If CreateImage(infoImageID(index), #ICON_SIZE, #ICON_SIZE, 32)
+    If StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
+      VectorSourceColor(RGBA(0,0,0,0))
+      VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
+      ;AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1)
+      ;FillPath()
+      FillVectorOutput()
+
+      VectorSourceColor(RGBA(Red(innerCol), Green(innerCol), Blue(innerCol), 255))
+      AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 4)
+      FillPath()
+      StopVectorDrawing()
+    EndIf
   EndIf
+
+  
+    If trayID(index) = 0
+      trayID(index) = index + 1
+      AddSysTrayIcon(trayID(index), WindowID(0), ImageID(infoImageID(index)))
+      SysTrayIconToolTip(trayID(index), tooltip(index))
+    Else
+      ChangeSysTrayIcon(trayID(index), ImageID(infoImageID(index)))
+    EndIf
 EndProcedure
+
 
 Procedure SetListItemStarted(index,started)
   bgCol = bgColor(index)
@@ -800,10 +796,11 @@ Repeat
 Until 0
 CloseWindow(0)
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 42
-; FirstLine = 14
+; CursorPosition = 32
+; FirstLine = 9
 ; Folding = -----
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; DPIAware
+; Executable = Docker Status.exe
