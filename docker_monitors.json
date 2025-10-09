@@ -1,11 +1,11 @@
 [
   {
     "Started"     : 1,
-    "LogH"        : 166,
+    "LogH"        : 360,
     "Name"        : "aos2-frontend",
-    "LogW"        : 409,
-    "LogX"        : 1130,
-    "LogY"        : 618,
+    "LogW"        : 506,
+    "LogX"        : 991,
+    "LogY"        : 414,
     "NeutralColor": 0,
     "Patterns"    : [
         {

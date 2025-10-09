@@ -12,6 +12,7 @@
 
 Structure ContainerOutput
   List lines.s()
+  currentLine.q
 EndStructure
 
 Global monitorCount.l = 0
@@ -60,6 +61,7 @@ Global Dim patternColor.l(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
  Global currentContainerIndex = 0
  Global currentPatternIndex = 0
  
+ Global lastTimeOuputAdded = 0
  
 Enumeration KeyboardEvents
   #EventOk
@@ -335,7 +337,7 @@ Procedure.l IsAtScrollBottom(EditorGadgetID)
       ; 3. Check the condition for being at the bottom.
       ; The scrollbar is at the bottom when:
       ; Current Position (nPos) + Viewport Size (nPage) >= Maximum Scrollable Value (nMax) + 1
-      Debug Str(si\nPos + si\nPage - (si\nMax -100))+" > 0 ?"
+      ; Debug "SCROLL "+Str(si\nPos + si\nPage - (si\nMax -100))+" > 0 ?"
       If si\nPos + si\nPage >= si\nMax - 100
         ProcedureReturn #True
       EndIf
@@ -386,17 +388,17 @@ Procedure ShowSystrayNotification(index)
   winID  = OpenWindow(#PB_Any, w - #Notification_Width - 10, h - #Notification_Height - 10-80, #Notification_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool|#PB_Window_Invisible      )
   If winID
     StickyWindow(winID,#True)
-    TextGadget(#PB_Any, 20, 0, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
+    textGadget = TextGadget(#PB_Any, 20, 0, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
     colorGadget = ContainerGadget(#PB_Any,10, 0,16,16,#PB_Container_BorderLess)
     CloseGadgetList()
     SetGadgetColor(colorGadget,#PB_Gadget_BackColor,bgColor(index))
-    
     If notificationWinID <>0
      CloseWindow(notificationWinID)
     EndIf
     notificationWinID = winID
     AddWindowTimer(winID, #Notification_TimerID, #Notification_Duration)
     HideWindow(winID,#False)
+     Repeat : Until WindowEvent() = 0
   EndIf
 EndProcedure
 
@@ -409,7 +411,7 @@ Procedure CreateInfoImage(index, innerCol, bgCol)
   
   If  CreateImage(1000+index, #ICON_SIZE, #ICON_SIZE, 32)
      infoImageID(index)  = 1000+index
-    Debug infoImageID(index) 
+    ; Debug infoImageID(index) 
     If StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
       VectorSourceColor(RGBA(0,0,0,0))
       VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
@@ -543,7 +545,7 @@ Procedure SetWindowAndOverlayIcon(winID,index)
   ; Try to create ITaskbarList3
   hr = CoCreateInstance_(@CLSID_TaskbarList, 0, #CLSCTX_ALL, @IID_ITaskbarList3, @pTaskbar)
   If hr < 0 Or pTaskbar = 0
-    Debug "ITaskbarList3 not available, fallback to ITaskbarList"
+   ; Debug "ITaskbarList3 not available, fallback to ITaskbarList"
     ; Fallback to ITaskbarList
     hr = CoCreateInstance_(@CLSID_TaskbarList, 0, #CLSCTX_ALL, @IID_ITaskbarList, @pTaskbarBase)
     If hr < 0 Or pTaskbarBase = 0
@@ -669,9 +671,6 @@ EndProcedure
 
 
 Procedure CreateWindowIcon(winID,index)
-  Debug "CreateWindowIcon"
-  Debug Index
-  Debug infoImageID(index)
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Call the procedure to get the icon handles
     iconBG =  CreateImage(#PB_Any, #ICON_SIZE, #ICON_SIZE)
@@ -1092,7 +1091,11 @@ Procedure StartDockerFollow(index)
   SetListItemStarted(index,#True)
   
   ShowSystrayNotification(index)
-
+  
+  ClearList(containerOutput(index)\lines())
+  containerOutput(index)\currentLine = 0
+  
+  currentLine = 0;
   
 EndProcedure
 
@@ -1191,17 +1194,17 @@ Procedure.s RemoveFirstLineFromText(Text.s)
     ProcedureReturn NewText
 EndProcedure
 
-Procedure AddOutputLine(index,editorGadgetID,line.s)
+Procedure AddOutputLines(index,editorGadgetID,lines.s)
   text.s = GetGadgetText(editorGadgetID)
   
   ListSize = ListSize(containerOutput(index)\lines()) 
   If ListSize >= #MAX_LINES
     text = RemoveFirstLineFromText(text.s)
   EndIf
+  wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
+  SetGadgetText(editorGadgetID,text+Chr(10)+lines)
   
-  SetGadgetText(editorGadgetID,text+Chr(10)+line)
-  
-  If IsAtScrollBottom(editorGadgetID)
+  If wasAtScrollBottom
     ScrollEditorToBottom(editorGadgetID)
   EndIf
 EndProcedure 
@@ -1234,14 +1237,48 @@ Procedure HandleInputLine(index,line$)
     EndIf
   Next
   
-  ;Update log windows
-  ForEach logWindows()
-    If logWindows()\containerIndex = index
-      AddOutputLine(logWindows()\containerIndex,logWindows()\editorGadgetID,line$) 
-    EndIf
-  Next
   
 EndProcedure
+
+
+Procedure HandleInputDisplay(index)
+  
+  If(ListSize(containerOutput(index)\lines())=0)
+    ProcedureReturn
+  EndIf 
+    
+  text$ = ""
+ 
+  If(containerOutput(index)\currentline=0)
+    FirstElement(containerOutput(index)\lines())
+      currentElement = @containerOutput(index)\lines()
+  Else
+    ChangeCurrentElement(containerOutput(index)\lines(),containerOutput(index)\currentline)
+    currentElement = NextElement(containerOutput(index)\lines())
+   EndIf 
+            
+  lastOutputElement = 0
+  While currentElement<> 0 
+    text$ =  text$+Chr(10)+containerOutput(index)\lines()
+    lastOutputElement = currentElement
+     currentElement = NextElement(containerOutput(index)\lines())
+  Wend
+
+  If lastOutputElement <> 0
+    containerOutput(index)\currentline = lastOutputElement
+  EndIf 
+ 
+  ;Update log windows
+  If text$ <> ""
+    ForEach logWindows()
+      If logWindows()\containerIndex = index
+       AddOutputLines(logWindows()\containerIndex,logWindows()\editorGadgetID,text$) 
+      EndIf
+    Next
+  EndIf 
+  
+EndProcedure
+
 
 Procedure CheckDockerOutput(index)
   Protected line.s
@@ -1290,6 +1327,13 @@ Procedure CheckDockerOutput(index)
     ; loop or from stdout), we immediately run the full check again. This is
     ; essential because new data might have arrived during the processing of the last batch.
   Until dataRead = #False 
+  
+  If ElapsedMilliseconds()-lastTimeOuputAdded>50
+    lastTimeOuputAdded = ElapsedMilliseconds()
+    HandleInputDisplay(index)
+  EndIf 
+  
+  
   
 EndProcedure
 
@@ -1388,26 +1432,19 @@ Procedure ShowLogs(index)
     EndIf
   Next
   
-  Protected winID, gadgetID, lineCount, skipCount, i
+  Protected winID, gadgetID
   Protected text$ = ""
   
   If index < 0 Or index > #MAX_CONTAINERS-1
     ProcedureReturn
   EndIf
   
-  lineCount = ListSize(containerOutput(index)\lines())
+  ForEach containerOutput(index)\lines()
+        text$ =  text$+Chr(10)+containerOutput(index)\lines()
+
+  Next
   
-  skipCount = 10000
-  
-  
-  i = 0
-  *element = LastElement(containerOutput(index)\lines())
-  While *element And i <skipCount
-    i + 1
-    text$ = containerOutput(index)\lines() + Chr(10) + text$
-    *element = PreviousElement(containerOutput(index)\lines())
-  Wend
-  
+
   ; Open non-blocking window
   If containterMetaData(index)\logWindowW = 0 And containterMetaData(index)\logWindowH = 0
     containterMetaData(index)\logWindowW = 600
@@ -1429,6 +1466,19 @@ Procedure ShowLogs(index)
     StickyWindow(winID,#True) 
     editorID = EditorGadget(#PB_Any, 0, 0,  containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
     SetGadgetText(editorID, text$)
+    ; Enable anti-aliasing with cross-platform font selection
+    CompilerSelect #PB_Compiler_OS
+      CompilerCase #PB_OS_Windows
+        fontName$ = "Consolas"
+      CompilerCase #PB_OS_Linux
+        fontName$ = "Monospace"
+      CompilerCase #PB_OS_MacOS
+        fontName$ = "Monaco"
+    CompilerEndSelect
+    
+    If LoadFont(0, fontName$, 10, #PB_Font_HighQuality)
+      SetGadgetFont(editorID, FontID(0))
+    EndIf
     SetGadgetColor(editorID,#PB_Gadget_FrontColor,RGB(200,200,200)) 
     SetGadgetColor(editorID, #PB_Gadget_BackColor ,RGB(0,0,0)) 
     
@@ -1448,9 +1498,24 @@ Procedure ShowLogs(index)
   EndIf
 EndProcedure
 
-
+Procedure SetWindowTransparency(winID, alpha) ; alpha: 0-255 (0=invisible, 255=opaque)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    #WS_EX_LAYERED = $80000
+    #LWA_ALPHA = $2
+    #GWL_EXSTYLE = -20
+    
+    Protected hWnd = WindowID(winID)
+    Protected style = GetWindowLong_(hWnd, #GWL_EXSTYLE)
+    
+    ; Add layered window style
+    SetWindowLong_(hWnd, #GWL_EXSTYLE, style | #WS_EX_LAYERED)
+    
+    ; Set transparency
+    SetLayeredWindowAttributes_(hWnd, 0, alpha, #LWA_ALPHA)
+  CompilerEndIf
+EndProcedure
 ; -------------------- MAIN WINDOW --------------------
-If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_ScreenCentered)
+If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget|  #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered|#PB_Window_Invisible  )
   ListIconGadget(0, 10, 10, 300, 280,"Container",295,#PB_ListIcon_FullRowSelect)
   ButtonGadget(1, 325, 10, 80, 24, "Add")
   ButtonGadget(6, 325, 40, 80, 24, "Edit")
@@ -1458,6 +1523,14 @@ If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_S
   ButtonGadget(5, 325, 110, 80, 24, "Log Filter")
   ButtonGadget(3, 325, 150, 80, 24, "Start")
   ButtonGadget(4, 325, 180, 80, 24, "Stop")
+  
+  SetWindowTransparency(0, 0)
+  HideWindow(0,#False)
+  Repeat : Until WindowEvent() = 0
+  SetWindowTransparency(0, 255)
+
+ 
+
 EndIf
 
 
@@ -1808,9 +1881,9 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1424
-; FirstLine = 1399
-; Folding = ---------
+; CursorPosition = 1238
+; FirstLine = 1220
+; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
