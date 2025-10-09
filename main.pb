@@ -394,7 +394,8 @@ Procedure ShowSystrayNotification(index)
     SetGadgetColor(colorGadget,#PB_Gadget_BackColor,bgColor(index))
     If notificationWinID <>0
      CloseWindow(notificationWinID)
-    EndIf
+   EndIf
+   SetWindowColor(winID,RGB(255,0,0))
     notificationWinID = winID
     AddWindowTimer(winID, #Notification_TimerID, #Notification_Duration)
     HideWindow(winID,#False)
@@ -1416,6 +1417,22 @@ EndProcedure
 
 
 
+Procedure SetWindowTransparency(winID, alpha) ; alpha: 0-255 (0=invisible, 255=opaque)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    #WS_EX_LAYERED = $80000
+    #LWA_ALPHA = $2
+    #GWL_EXSTYLE = -20
+    
+    Protected hWnd = WindowID(winID)
+    Protected style = GetWindowLong_(hWnd, #GWL_EXSTYLE)
+    
+    ; Add layered window style
+    SetWindowLong_(hWnd, #GWL_EXSTYLE, style | #WS_EX_LAYERED)
+    
+    ; Set transparency
+    SetLayeredWindowAttributes_(hWnd, 0, alpha, #LWA_ALPHA)
+  CompilerEndIf
+EndProcedure
 
 Procedure ShowLogs(index)
 
@@ -1459,7 +1476,7 @@ Procedure ShowLogs(index)
   
   
   
-  winID = OpenWindow(#PB_Any, containterMetaData(index)\logWindowX, containterMetaData(index)\logWindowY, containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, containerName(index), WindowFlags |#PB_Window_SizeGadget )
+  winID = OpenWindow(#PB_Any, containterMetaData(index)\logWindowX, containterMetaData(index)\logWindowY, containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, containerName(index), WindowFlags |#PB_Window_SizeGadget |#PB_Window_Invisible)
   If winID
     SetWindowColor(winID,RGB(0,0,0))
     
@@ -1494,26 +1511,13 @@ Procedure ShowLogs(index)
     
     CreateWindowIcon(winID,index)
     
-    
+    SetWindowTransparency(winID, 0)
+    HideWindow(winID,#False)
+    Repeat : Until WindowEvent() = 0
+    SetWindowTransparency(winID, 255)
   EndIf
 EndProcedure
 
-Procedure SetWindowTransparency(winID, alpha) ; alpha: 0-255 (0=invisible, 255=opaque)
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    #WS_EX_LAYERED = $80000
-    #LWA_ALPHA = $2
-    #GWL_EXSTYLE = -20
-    
-    Protected hWnd = WindowID(winID)
-    Protected style = GetWindowLong_(hWnd, #GWL_EXSTYLE)
-    
-    ; Add layered window style
-    SetWindowLong_(hWnd, #GWL_EXSTYLE, style | #WS_EX_LAYERED)
-    
-    ; Set transparency
-    SetLayeredWindowAttributes_(hWnd, 0, alpha, #LWA_ALPHA)
-  CompilerEndIf
-EndProcedure
 ; -------------------- MAIN WINDOW --------------------
 If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget|  #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered|#PB_Window_Invisible  )
   ListIconGadget(0, 10, 10, 300, 280,"Container",295,#PB_ListIcon_FullRowSelect)
@@ -1523,7 +1527,7 @@ If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_S
   ButtonGadget(5, 325, 110, 80, 24, "Log Filter")
   ButtonGadget(3, 325, 150, 80, 24, "Start")
   ButtonGadget(4, 325, 180, 80, 24, "Stop")
-  
+
   SetWindowTransparency(0, 0)
   HideWindow(0,#False)
   Repeat : Until WindowEvent() = 0
@@ -1881,11 +1885,12 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1238
-; FirstLine = 1220
+; CursorPosition = 397
+; FirstLine = 383
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; DPIAware
+; UseIcon = icon.ico
 ; Executable = Docker Status.exe
