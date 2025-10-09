@@ -1,11 +1,11 @@
 [
   {
     "Started"     : 1,
-    "LogH"        : 366,
+    "LogH"        : 218,
     "Name"        : "aos2-frontend",
-    "LogW"        : 546,
-    "LogX"        : 921,
-    "LogY"        : 362,
+    "LogW"        : 494,
+    "LogX"        : 982,
+    "LogY"        : 469,
     "NeutralColor": 0,
     "Patterns"    : [
         {
@@ -13,7 +13,7 @@
           "Pattern": "Changes detected. Rebuilding"
         },
         {
-          "Color"  : 65280,
+          "Color"  : 4259584,
           "Pattern": "(?i)(Application|app)\\s+bundle\\s+generation\\s+complete"
         },
         {
@@ -22,15 +22,15 @@
         }
       ],
     "InnerColor"  : 16777215,
-    "BGColor"     : 13158600
+    "BGColor"     : 8421504
   },
   {
     "Started"     : 0,
-    "LogH"        : 0,
+    "LogH"        : 400,
     "Name"        : "aos2-gateway",
-    "LogW"        : 0,
-    "LogX"        : 0,
-    "LogY"        : 0,
+    "LogW"        : 600,
+    "LogX"        : 461,
+    "LogY"        : 213,
     "NeutralColor": 0,
     "Patterns"    : [],
     "InnerColor"  : 16777215,
@@ -39,22 +39,13 @@
   {
     "Started"     : 0,
     "LogH"        : 194,
-    "Name"        : "aos2-frontend",
+    "Name"        : "test",
     "LogW"        : 457,
     "LogX"        : 634,
     "LogY"        : 289,
     "NeutralColor": 0,
-    "Patterns"    : [
-        {
-          "Color"  : 255,
-          "Pattern": "Changes detected. Rebuilding"
-        },
-        {
-          "Color"  : 16776960,
-          "Pattern": "(?i)(Application|app)\\s+bundle\\s+generation\\s+complete"
-        }
-      ],
+    "Patterns"    : [],
     "InnerColor"  : 16777215,
-    "BGColor"     : 16711935
+    "BGColor"     : 13158600
   }
 ]

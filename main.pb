@@ -2,7 +2,9 @@
 #MAX_CONTAINERS = 1000
 #MAX_PATTERNS   = 1000
 #MAX_LINES   = 5000
-#ICON_SIZE      = 256
+#ICON_SIZE      =64
+#ICON_OVERLAY_SIZE      = 128
+
 #UPDATE_INTERVAL = 1
 
 #JSON_Save      = 0
@@ -30,6 +32,7 @@ Global Dim containerStarted.b(#MAX_CONTAINERS-1)
 Global Dim containerOutput.containerOutput(#MAX_CONTAINERS-1)
 Global Dim lastMatch.s(#MAX_CONTAINERS-1)
 Global Dim containerStatusColor.l(#MAX_CONTAINERS-1)
+Global Dim lastMatchPattern.l(#MAX_CONTAINERS-1)
 Structure LogWindow
   winID.i
   editorGadgetID.i
@@ -46,6 +49,7 @@ Structure ContainterMetaData
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     bigIconHandle.i
     smallIconHandle.i
+    overlayIconHandle.i
   CompilerEndIf
 EndStructure
 
@@ -56,13 +60,14 @@ Global Dim patterns.s(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim patternColor.l(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 
 
- Global pattern$ = ""
- Global patCol = 0
- Global currentContainerIndex = 0
- Global currentPatternIndex = 0
- 
- Global lastTimeOuputAdded = 0
- 
+Global pattern$ = ""
+Global patCol = 0
+Global bgCol = 0
+Global currentContainerIndex = 0
+Global currentPatternIndex = 0
+
+Global lastTimeOuputAdded = 0
+
 Enumeration KeyboardEvents
   #EventOk
 EndEnumeration
@@ -100,6 +105,22 @@ EndProcedure
 
 ;Windows Method
 
+Procedure SetWindowTransparency(winID, alpha) ; alpha: 0-255 (0=invisible, 255=opaque)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    #WS_EX_LAYERED = $80000
+    #LWA_ALPHA = $2
+    #GWL_EXSTYLE = -20
+    
+    Protected hWnd = WindowID(winID)
+    Protected style = GetWindowLong_(hWnd, #GWL_EXSTYLE)
+    
+    ; Add layered window style
+    SetWindowLong_(hWnd, #GWL_EXSTYLE, style | #WS_EX_LAYERED)
+    
+    ; Set transparency
+    SetLayeredWindowAttributes_(hWnd, 0, alpha, #LWA_ALPHA)
+  CompilerEndIf
+EndProcedure
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   
@@ -171,8 +192,8 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected w, h
     
     ; Use the desired size
-    w = #ICON_SIZE
-    h =   #ICON_SIZE
+    w = #ICON_OVERLAY_SIZE
+    h =   #ICON_OVERLAY_SIZE
     ; Create a 32-bit RGBA image
     imgOverlay =  CreateImage(#PB_Any, w, h)
     If imgOverlay
@@ -180,7 +201,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       StartDrawing(ImageOutput(imgOverlay))
       Box(0, 0, w, h, RGBA(0,0,0,0)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
       Circle(w/2, h/2, w/2, bgColor(index))
-      Circle(w/2, h/2, w/2- #ICON_SIZE*0.1, containerStatusColor(index))
+      Circle(w/2, h/2, w/2- #ICON_OVERLAY_SIZE*0.1, containerStatusColor(index))
       StopDrawing()
       imgBG =  CreateImage(#PB_Any, w, h)
       If imgBG
@@ -204,7 +225,8 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         
         ; Create the HICON
         hIcon = CreateIconIndirect_(ii)
-        
+        FreeImage(imgOverlay)
+        FreeImage(imgBG)
         ; Cleanup temporary mask
         DeleteObject_(ii\hbmMask)
       EndIf
@@ -377,29 +399,41 @@ EndProcedure
 ; Constants
 #Notification_TimerID = 1 ; A unique ID for the timer
 #Notification_Duration = 2500 ; 5000 ms = 5 seconds
-#Notification_Width = 180
-#Notification_Height = 40
+#Notification_Width = 190
+#Notification_Height = 50
 Global notificationWinID = 0
 ; Procedure to create and show the notification
 Procedure ShowSystrayNotification(index)
   ExamineDesktops()
   w = DesktopUnscaledX(DesktopWidth(0))
   h = DesktopUnscaledY(DesktopHeight(0))
-  winID  = OpenWindow(#PB_Any, w - #Notification_Width - 10, h - #Notification_Height - 10-80, #Notification_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool|#PB_Window_Invisible      )
+  winID  = OpenWindow(#PB_Any, w - #Notification_Width - 10, h - #Notification_Height - 10-80, #Notification_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool |#PB_Window_Invisible      )
   If winID
     StickyWindow(winID,#True)
-    textGadget = TextGadget(#PB_Any, 20, 0, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
-    colorGadget = ContainerGadget(#PB_Any,10, 0,16,16,#PB_Container_BorderLess)
+    textGadget = TextGadget(#PB_Any, 25, 5, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
+    colorbgGadget = ContainerGadget(#PB_Any,10, 0,26,26,#PB_Container_BorderLess)
+    colorGadget = ContainerGadget(#PB_Any,5, 5,16,16,#PB_Container_BorderLess)
+    
+    CloseGadgetList()
     CloseGadgetList()
     SetGadgetColor(colorGadget,#PB_Gadget_BackColor,bgColor(index))
+    SetGadgetColor(colorbgGadget,#PB_Gadget_BackColor,RGB(0,147,242))
+    
+    
+    
     If notificationWinID <>0
-     CloseWindow(notificationWinID)
-   EndIf
-   SetWindowColor(winID,RGB(255,0,0))
+      CloseWindow(notificationWinID)
+      notificationWinID = 0
+    EndIf
     notificationWinID = winID
     AddWindowTimer(winID, #Notification_TimerID, #Notification_Duration)
-    HideWindow(winID,#False)
+
+     SetWindowTransparency(winID, 0)
+     HideWindow(winID,#False)
      Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(winID, 255)
+    
+    
   EndIf
 EndProcedure
 
@@ -411,16 +445,29 @@ EndProcedure
 Procedure CreateInfoImage(index, innerCol, bgCol)
   
   If  CreateImage(1000+index, #ICON_SIZE, #ICON_SIZE, 32)
-     infoImageID(index)  = 1000+index
+    infoImageID(index)  = 1000+index
+    
+    
+    If StartDrawing(ImageOutput(infoImageID(index)))
+      w = #ICON_SIZE
+      h =   #ICON_SIZE
+      Box(0, 0, w, h, bgColor(index)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
+                                      ;Circle(w/2, h/2, w/2, bgColor(index))
+      
+      Box(#ICON_SIZE*0.1, #ICON_SIZE*0.1, w-#ICON_SIZE*0.1*2, h-#ICON_SIZE*0.1*2, containerStatusColor(index)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
+      
+      ;Circle(w/2, h/2, w/2- #ICON_SIZE*0.1, containerStatusColor(index))
+      StopDrawing()
+    EndIf 
     ; Debug infoImageID(index) 
-    If StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
+    If #False And StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
       VectorSourceColor(RGBA(0,0,0,0))
       VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
       ;AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1)
       ;FillPath()
       FillVectorOutput()
       VectorSourceColor(RGBA(Red(innerCol), Green(innerCol), Blue(innerCol), 255))
-      AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 20)
+      AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 2)
       FillPath()
       StopVectorDrawing()
     EndIf
@@ -530,23 +577,23 @@ IID_ITaskbarList3\Data4[7] = $9E
 ; -----------------------------
 ; Setup window icon + overlay
 ; -----------------------------
-Procedure SetWindowAndOverlayIcon(winID,index)
+Procedure SetOverlayIcon(winID,index)
   Protected hBigIcon.i = 0
   Protected pTaskbar.i = 0
   Protected pTaskbarBase.i = 0
   Protected hr.l
-
+  
   ; Initialize COM
   hr = CoInitializeEx_(0, 2)
   If hr < 0
     Debug "CoInitializeEx failed: " + Hex(hr)
     ProcedureReturn 0
   EndIf
-
+  
   ; Try to create ITaskbarList3
   hr = CoCreateInstance_(@CLSID_TaskbarList, 0, #CLSCTX_ALL, @IID_ITaskbarList3, @pTaskbar)
   If hr < 0 Or pTaskbar = 0
-   ; Debug "ITaskbarList3 not available, fallback to ITaskbarList"
+    ; Debug "ITaskbarList3 not available, fallback to ITaskbarList"
     ; Fallback to ITaskbarList
     hr = CoCreateInstance_(@CLSID_TaskbarList, 0, #CLSCTX_ALL, @IID_ITaskbarList, @pTaskbarBase)
     If hr < 0 Or pTaskbarBase = 0
@@ -554,7 +601,7 @@ Procedure SetWindowAndOverlayIcon(winID,index)
       ProcedureReturn hBigIcon
     EndIf
   EndIf
-
+  
   ; Use whichever interface is available
   Protected interfacePtr.i
   If pTaskbar <> 0
@@ -562,7 +609,7 @@ Procedure SetWindowAndOverlayIcon(winID,index)
   Else
     interfacePtr = pTaskbarBase
   EndIf
-
+  
   ; Initialize Taskbar
   Protected vtbl.i = PeekI(interfacePtr)
   Protected *HrInit = PeekI(vtbl + 3*SizeOf(Integer))
@@ -574,35 +621,41 @@ Procedure SetWindowAndOverlayIcon(winID,index)
   ; Only ITaskbarList3 can set overlay
   If interfacePtr <> 0
     ; Create Cyan overlay image
+     Protected Overlay = CreateCircularOverlayHIcon(index)
+
+    If containterMetaData(index)\overlayIconHandle
+      DestroyIcon_(containterMetaData(index)\overlayIconHandle)
+    EndIf 
+    containterMetaData(index)\overlayIconHandle = Overlay
     
-    Protected Overlay = CreateCircularOverlayHIcon(index)
+    
     ; Set overlay icon (vtable index 18)
     Protected *SetOverlayIcon = PeekI(vtbl + 18*SizeOf(Integer))
     hr = CallFunctionFast(*SetOverlayIcon, interfacePtr, winID, Overlay, 0)
     If hr < 0
       Debug "SetOverlayIcon failed: " + Hex(hr)
     EndIf
-      ; Release COM interface
-
+    ; Release COM interface
+    
     ReleaseFunc = PeekI(PeekI(interfacePtr) + 2*SizeOf(Integer)) ; vtable index 2 = Release
     CallFunctionFast(ReleaseFunc, interfacePtr)
-
+    
   EndIf
   ProcedureReturn hBigIcon
 EndProcedure
 
 Procedure RemoveOverlayIcon(winID)
-   Protected pTaskbar.i = 0
+  Protected pTaskbar.i = 0
   Protected pTaskbarBase.i = 0
   Protected hr.l
-
+  
   ; Initialize COM
   hr = CoInitializeEx_(0, 2)
   If hr < 0
     Debug "CoInitializeEx failed: " + Hex(hr)
     ProcedureReturn 0
   EndIf
-
+  
   ; Try to create ITaskbarList3
   hr = CoCreateInstance_(@CLSID_TaskbarList, 0, #CLSCTX_ALL, @IID_ITaskbarList3, @pTaskbar)
   If hr < 0 Or pTaskbar = 0
@@ -614,7 +667,7 @@ Procedure RemoveOverlayIcon(winID)
       ProcedureReturn hBigIcon
     EndIf
   EndIf
-
+  
   ; Use whichever interface is available
   Protected interfacePtr.i
   If pTaskbar <> 0
@@ -622,7 +675,7 @@ Procedure RemoveOverlayIcon(winID)
   Else
     interfacePtr = pTaskbarBase
   EndIf
-
+  
   ; Initialize Taskbar
   Protected vtbl.i = PeekI(interfacePtr)
   Protected *HrInit = PeekI(vtbl + 3*SizeOf(Integer))
@@ -644,14 +697,14 @@ Procedure RemoveOverlayIcon(winID)
     If hr < 0
       Debug "Removing overlay icon failed: " + Hex(hr)
     EndIf
-
-
-  ; Release COM interface
-
+    
+    
+    ; Release COM interface
+    
     ReleaseFunc = PeekI(PeekI(interfacePtr) + 2*SizeOf(Integer)) ; vtable index 2 = Release
     CallFunctionFast(ReleaseFunc, interfacePtr)
   EndIf
-
+  
   CoUninitialize_()
 EndProcedure
 
@@ -672,7 +725,8 @@ EndProcedure
 
 
 Procedure CreateWindowIcon(winID,index)
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  
+   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Call the procedure to get the icon handles
     iconBG =  CreateImage(#PB_Any, #ICON_SIZE, #ICON_SIZE)
     If iconBG
@@ -680,25 +734,29 @@ Procedure CreateWindowIcon(winID,index)
       Box(0, 0, #ICON_SIZE, #ICON_SIZE, bgColor(index))
       StopDrawing()
       
-      BigIconHandle   =  CreateHIconFromImage(iconBG) ;Taskbar icon
+;       BigIconHandle   =  CreateHIconFromImage(iconBG) ;Taskbar icon
+;       
+;       If BigIconHandle 
+;         If containterMetaData(index)\bigIconHandle
+;           DestroyIcon_(containterMetaData(index)\bigIconHandle)
+;         EndIf 
+;         containterMetaData(index)\bigIconHandle = BigIconHandle
+;         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
+;       EndIf 
+      
+      
       SmallIconHandle =  CreateHIconFromImage(infoImageID(index))
-    
-    If BigIconHandle 
-      If containterMetaData(index)\bigIconHandle
-        DestroyIcon_(containterMetaData(index)\bigIconHandle)
-      EndIf 
-      containterMetaData(index)\bigIconHandle = BigIconHandle
-      SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
+
+      If SmallIconHandle
+        If containterMetaData(index)\smallIconHandle
+          DestroyIcon_(containterMetaData(index)\smallIconHandle)
+        EndIf 
+        containterMetaData(index)\smallIconHandle = SmallIconHandle
+        SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, SmallIconHandle)
+      EndIf
     EndIf 
-    If SmallIconHandle
-      If containterMetaData(index)\smallIconHandle
-        DestroyIcon_(containterMetaData(index)\smallIconHandle)
-      EndIf 
-      containterMetaData(index)\smallIconHandle = SmallIconHandle
-     SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, SmallIconHandle)
-   EndIf
-   EndIf 
-   SetWindowAndOverlayIcon(WindowID(winID),index)
+    SetOverlayIcon(WindowID(winID),index)
+    SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, ExtractIcon_(GetModuleHandle_(0), ProgramFilename(), 0))
 
   CompilerEndIf
 EndProcedure
@@ -754,14 +812,14 @@ Procedure SetListItemStarted(index,started)
       AddPathLine(24, 16)
       AddPathLine(8, 26)
       ClosePath()
-      VectorSourceColor(RGBA(0,0,0,255))
+      VectorSourceColor(RGBA(0,147,242, 255))
       FillPath()
       MovePathCursor(8, 6)
       AddPathLine(24, 16)
       AddPathLine(8, 26)
       ClosePath()
       VectorSourceColor(RGBA(255, 255, 255, 255))
-      StrokePath(3)
+      StrokePath(4)
     EndIf
     StopVectorDrawing()
     SetGadgetItemImage(0, index, ImageID(img))
@@ -898,7 +956,7 @@ Procedure CloseAddMonitorDialog(bgCol)
 EndProcedure
 
 Procedure AddMonitorDialog()
-  If OpenWindow(1, 0, 0, 380, 130, "Add Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(1, 0, 0, 380, 130, "Add Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     StringGadget(10, 10, 10, 360, 24, "")
     SetActiveGadget(10)
     AddKeyboardShortcut(1, #PB_Shortcut_Return, #EventOk)
@@ -915,6 +973,10 @@ Procedure AddMonitorDialog()
     DisableGadget(13, #True)
     
     StickyWindow(1,#True)
+     SetWindowTransparency(1, 0)
+     HideWindow(1,#False)
+     Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(1, 255)
   EndIf
 EndProcedure
 
@@ -923,7 +985,7 @@ Procedure EditMonitorDialog(selIndex)
   container$ = containerName(selIndex)
   bgCol      = bgColor(selIndex)
   
-  If OpenWindow(5, 0, 0, 380, 130, "Edit Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(5, 0, 0, 380, 130, "Edit Container", #PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     StringGadget(50, 10, 10, 360, 24, container$)
     SetActiveGadget(50)
     
@@ -940,6 +1002,10 @@ Procedure EditMonitorDialog(selIndex)
     EndIf
     
     StickyWindow(5,#True)
+     SetWindowTransparency(5, 0)
+     HideWindow(5,#False)
+     Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(5, 255)
   EndIf
 EndProcedure
 
@@ -948,13 +1014,17 @@ Procedure EditColorsDialog(index)
   If index < 0 Or index >= monitorCount
     ProcedureReturn
   EndIf
-  If OpenWindow(6,150,150,360,160,"Edit Colors for " + containerName(index),#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(6,150,150,360,160,"Edit Colors for " + containerName(index),#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     ButtonGadget(60,10,10,160,28,"Pick Background")
     ButtonGadget(61,190,10,160,28,"Pick Neutral Inner")
     ButtonGadget(62,10,50,160,28,"Pick Inner (active)")
     ButtonGadget(63,190,50,160,28,"Recreate Icon")
     ButtonGadget(64,80,100,80,24,"Close")
     StickyWindow(6,#True)
+     SetWindowTransparency(6, 0)
+     HideWindow(6,#False)
+     Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(6, 255)
   EndIf
 EndProcedure
 
@@ -974,7 +1044,7 @@ EndProcedure
 
 ; -------------------- ADD PATTERN DIALOG --------------------
 Procedure AddPatternDialog(monitorIndex)
-  If OpenWindow(2,0,0,380,130,"Add Log Status Pattern",#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(2,0,0,380,130,"Add Log Status Pattern",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     StringGadget(20,10,10,360,24,"")
     SetActiveGadget(20)
     TextGadget(21,10,53,100,24,"Pattern Color:")
@@ -988,6 +1058,10 @@ Procedure AddPatternDialog(monitorIndex)
     patCol = RGB(255,0,0)
     SetGadgetColor(24,#PB_Gadget_BackColor,patCol)
     StickyWindow(2,#True)
+     SetWindowTransparency(2, 0)
+     HideWindow(2,#False)
+     Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(2, 255)
   EndIf
 EndProcedure
 
@@ -996,7 +1070,7 @@ Procedure EditPatternDialog(index,selIndex)
   pattern$ = patterns(index,selIndex)
   patCol = patternColor(index,selIndex)
   
-  If OpenWindow(3,0,0,380,130,"Edit Log Filter",#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(3,0,0,380,130,"Edit Log Filter",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     StringGadget(30,10,10,360,24,pattern$)
     SetActiveGadget(30)
     TextGadget(31,10,53,100,24,"Pattern Color:")
@@ -1009,6 +1083,10 @@ Procedure EditPatternDialog(index,selIndex)
     
     
     StickyWindow(3,#True)
+     SetWindowTransparency(3, 0)
+     HideWindow(3,#False)
+     Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(3, 255)
   EndIf
 EndProcedure
 
@@ -1017,7 +1095,7 @@ Procedure EditPatternsDialog(index)
   If index < 0 Or index >= monitorCount
     ProcedureReturn
   EndIf
-  If OpenWindow(4,150,150,420,450,"Edit Log Filter",#PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  If OpenWindow(4,150,150,420,450,"Edit Log Filter",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     ListIconGadget(40,10, 10, 300, 430,"Log Filter",295,#PB_ListIcon_FullRowSelect|#PB_ListIcon_AlwaysShowSelection)
     ButtonGadget(41, 325, 10, 80, 24, "Add")
     ButtonGadget(43, 325, 40, 80, 24, "Remove")
@@ -1029,6 +1107,10 @@ Procedure EditPatternsDialog(index)
     UpdatePatternButtonStates()
     
     StickyWindow(4,#True)
+     SetWindowTransparency(4, 0)
+     HideWindow(4,#False)
+     Repeat : Until WindowEvent() = 0
+     SetWindowTransparency(4, 255)
   EndIf
 EndProcedure
 
@@ -1082,9 +1164,10 @@ Procedure StartDockerFollow(index)
   dockerExecutable$ = GetDockerExcutable()
   container$ = containerName(index)
   dockerCommand$ = "/k " + Chr(34) + dockerExecutable$  +Chr(34) +" logs --follow --tail 1000 " + container$ 
-  
-  dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
-  
+  Debug "START"
+  dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read| #PB_Program_Hide );
+  Debug "STARTED"
+
   If trayID(index) = 0
     CreateMonitorIcon(index, innerColor(index), bgColor(index))
   EndIf
@@ -1102,6 +1185,10 @@ EndProcedure
 
 ; -------------------- STOP DOCKER FOLLOW --------------------
 Procedure StopDockerFollow(index)
+    If notificationWinID <>0
+      CloseWindow(notificationWinID)
+      notificationWinID = 0
+    EndIf
   If dockerProgramID(index) <> 0
     CloseProgram(dockerProgramID(index))
     dockerProgramID(index) = 0
@@ -1110,7 +1197,7 @@ Procedure StopDockerFollow(index)
   RemoveOverlayIcon(WindowID(0))
   ForEach logWindows()
     If logWindows()\containerIndex = index
-       RemoveOverlayIcon(WindowID(logWindows()\winID))
+      RemoveOverlayIcon(WindowID(logWindows()\winID))
       Break
     EndIf
   Next
@@ -1125,6 +1212,7 @@ Procedure StopDockerFollow(index)
   SetActiveGadget(0)
   SetGadgetItemState(0,index,#PB_ListIcon_Selected)
   UpdateButtonStates()
+  
 EndProcedure
 
 ; -------------------- UPDATE MONITOR ICON ON MATCH --------------------
@@ -1165,34 +1253,36 @@ Procedure UpdateMonitorIcon(index, matchColor)
     output$ = info$
   EndIf 
   SysTrayIconToolTip(trayID(index),output$ )
-    
-  SetWindowAndOverlayIcon(WindowID(0),index)
+  
+  SetOverlayIcon(WindowID(0),index)
 EndProcedure
 
 Procedure OnMatch(index, patternIndex , line.s)
   lastMatch(index) = line
   lastMatchTime(index) = ElapsedMilliseconds()
-  UpdateMonitorIcon(index, patternColor(index,patternIndex))
+  lastMatchPattern(index) = patternIndex
+
+  UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
 EndProcedure
 
 Procedure.s RemoveFirstLineFromText(Text.s)
-    Protected LineBreakPos.i
-    Protected NewText.s
-    
-    ; Find the position of the first line break (Chr(10) / Line Feed)
-    ; Note: Text files often use Chr(13) + Chr(10) (CRLF), so searching for Chr(10) is safer.
-    LineBreakPos = FindString(Text, Chr(10), 1)
-    
-    If LineBreakPos > 0
-        ; Return the substring starting just after the line break.
-        ; This effectively skips the first line and the line break itself.
-        NewText = Mid(Text, LineBreakPos + 1)
-    Else
-        ; If no line break is found, the text only has one line, so clear it.
-        NewText = ""
-    EndIf
-    
-    ProcedureReturn NewText
+  Protected LineBreakPos.i
+  Protected NewText.s
+  
+  ; Find the position of the first line break (Chr(10) / Line Feed)
+  ; Note: Text files often use Chr(13) + Chr(10) (CRLF), so searching for Chr(10) is safer.
+  LineBreakPos = FindString(Text, Chr(10), 1)
+  
+  If LineBreakPos > 0
+    ; Return the substring starting just after the line break.
+    ; This effectively skips the first line and the line break itself.
+    NewText = Mid(Text, LineBreakPos + 1)
+  Else
+    ; If no line break is found, the text only has one line, so clear it.
+    NewText = ""
+  EndIf
+  
+  ProcedureReturn NewText
 EndProcedure
 
 Procedure AddOutputLines(index,editorGadgetID,lines.s)
@@ -1213,18 +1303,20 @@ EndProcedure
 
 ; -------------------- CHECK DOCKER OUTPUT --------------------
 
-Procedure HandleInputLine(index,line$)
-  LastElement(containerOutput(index)\lines())
-  AddElement(containerOutput(index)\lines())
-  containerOutput(index)\lines() = line$
-  
-  ListSize = ListSize(containerOutput(index)\lines())
-    
-  If ListSize > #MAX_LINES
-    FirstElement(containerOutput(index)\lines())
-    DeleteElement(containerOutput(index)\lines())
+Procedure HandleInputLine(index,line$, addLine = #True)
+  If addLine
     LastElement(containerOutput(index)\lines())
-  EndIf
+    AddElement(containerOutput(index)\lines())
+    containerOutput(index)\lines() = line$
+    
+    ListSize = ListSize(containerOutput(index)\lines())
+    
+    If ListSize > #MAX_LINES
+      FirstElement(containerOutput(index)\lines())
+      DeleteElement(containerOutput(index)\lines())
+      LastElement(containerOutput(index)\lines())
+    EndIf
+  EndIf 
   
   For p = 0 To patternCount(index)-1
     If FindString(line$, patterns(index,p), 1) > 0
@@ -1247,33 +1339,33 @@ Procedure HandleInputDisplay(index)
   If(ListSize(containerOutput(index)\lines())=0)
     ProcedureReturn
   EndIf 
-    
+  
   text$ = ""
- 
+  
   If(containerOutput(index)\currentline=0)
     FirstElement(containerOutput(index)\lines())
-      currentElement = @containerOutput(index)\lines()
+    currentElement = @containerOutput(index)\lines()
   Else
     ChangeCurrentElement(containerOutput(index)\lines(),containerOutput(index)\currentline)
     currentElement = NextElement(containerOutput(index)\lines())
-   EndIf 
-            
+  EndIf 
+  
   lastOutputElement = 0
   While currentElement<> 0 
     text$ =  text$+Chr(10)+containerOutput(index)\lines()
     lastOutputElement = currentElement
-     currentElement = NextElement(containerOutput(index)\lines())
+    currentElement = NextElement(containerOutput(index)\lines())
   Wend
-
+  
   If lastOutputElement <> 0
     containerOutput(index)\currentline = lastOutputElement
   EndIf 
- 
+  
   ;Update log windows
   If text$ <> ""
     ForEach logWindows()
       If logWindows()\containerIndex = index
-       AddOutputLines(logWindows()\containerIndex,logWindows()\editorGadgetID,text$) 
+        AddOutputLines(logWindows()\containerIndex,logWindows()\editorGadgetID,text$) 
       EndIf
     Next
   EndIf 
@@ -1285,7 +1377,7 @@ Procedure CheckDockerOutput(index)
   Protected line.s
   Protected ProgramID.i = dockerProgramID(index)
   Protected dataRead.l ; Flag to track if ANY data was read
-  
+
   ; --- 1. Program Termination Check ---
   If ProgramID = 0 Or Not IsProgram(ProgramID)
     If containerStarted(index)
@@ -1297,6 +1389,8 @@ Procedure CheckDockerOutput(index)
     ProcedureReturn
   EndIf
   
+  Debug "START CheckDockerOutput"
+  
   ; --- 2. Non-Blocking Read Loop ---
   Repeat
     dataRead = #False ; Reset for this iteration
@@ -1306,6 +1400,15 @@ Procedure CheckDockerOutput(index)
     ;    on every pass, ensuring no error lines are missed or block the buffer.
     Repeat
       line = ReadProgramError(ProgramID) 
+      Debug "START CheckDockerOutput1 "+line
+      
+      If FindString(line,"Error response from daemon: No such container:",#PB_String_NoCase       )>0
+                StopDockerFollow(index)
+
+        MessageRequester("Error",line);
+       ProcedureReturn
+      EndIf 
+      
       If line <> ""
         HandleInputLine(index, line)
         dataRead = #True
@@ -1314,9 +1417,15 @@ Procedure CheckDockerOutput(index)
     
     ; B. Read Standard Output (stdout) - (NORMAL lines)
     ;    ReadProgramString() is BLOCKING, so we MUST check for data first.
+    Debug "START CheckDockerOutput2"
+    
     If AvailableProgramOutput(ProgramID) > 0
       ; Data is available, so ReadProgramString() will not block indefinitely.
+      Debug "START CheckDockerOutput3"
+     
+      
       line = ReadProgramString(ProgramID)
+      Debug "START CheckDockerOutput4 "+line
       
       If line <> ""
         HandleInputLine(index, line)
@@ -1328,6 +1437,7 @@ Procedure CheckDockerOutput(index)
     ; loop or from stdout), we immediately run the full check again. This is
     ; essential because new data might have arrived during the processing of the last batch.
   Until dataRead = #False 
+  Debug "START CheckDockerOutput5"
   
   If ElapsedMilliseconds()-lastTimeOuputAdded>50
     lastTimeOuputAdded = ElapsedMilliseconds()
@@ -1335,7 +1445,8 @@ Procedure CheckDockerOutput(index)
   EndIf 
   
   
-  
+      Debug "STOP CheckDockerOutput"
+
 EndProcedure
 
 
@@ -1417,29 +1528,13 @@ EndProcedure
 
 
 
-Procedure SetWindowTransparency(winID, alpha) ; alpha: 0-255 (0=invisible, 255=opaque)
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    #WS_EX_LAYERED = $80000
-    #LWA_ALPHA = $2
-    #GWL_EXSTYLE = -20
-    
-    Protected hWnd = WindowID(winID)
-    Protected style = GetWindowLong_(hWnd, #GWL_EXSTYLE)
-    
-    ; Add layered window style
-    SetWindowLong_(hWnd, #GWL_EXSTYLE, style | #WS_EX_LAYERED)
-    
-    ; Set transparency
-    SetLayeredWindowAttributes_(hWnd, 0, alpha, #LWA_ALPHA)
-  CompilerEndIf
-EndProcedure
 
 Procedure ShowLogs(index)
-
+  
   ForEach logWindows()
     If logWindows()\containerIndex = index
-        SetWindowAndOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
-
+      SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
+      
       If GetWindowState(logWindows()\winId) = #PB_Window_Minimize Or GetWindowState(logWindows()\winId) = #PB_Window_Maximize
         SetWindowState(logWindows()\winId,#PB_Window_Normal) 
       Else
@@ -1457,11 +1552,11 @@ Procedure ShowLogs(index)
   EndIf
   
   ForEach containerOutput(index)\lines()
-        text$ =  text$+Chr(10)+containerOutput(index)\lines()
-
+    text$ =  text$+Chr(10)+containerOutput(index)\lines()
+    
   Next
   
-
+  
   ; Open non-blocking window
   If containterMetaData(index)\logWindowW = 0 And containterMetaData(index)\logWindowH = 0
     containterMetaData(index)\logWindowW = 600
@@ -1508,13 +1603,18 @@ Procedure ShowLogs(index)
     BindEvent(#PB_Event_MoveWindow, @MoveLogWindows(),winID)
     
     ScrollEditorToBottom(editorID)
-    
-    CreateWindowIcon(winID,index)
-    
+
+
     SetWindowTransparency(winID, 0)
     HideWindow(winID,#False)
     Repeat : Until WindowEvent() = 0
-    SetWindowTransparency(winID, 255)
+    
+    Debug "CREATE ICON"
+   CreateWindowIcon(winID,index)
+   UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
+   Repeat : Until WindowEvent() = 0
+       SetWindowTransparency(winID, 255)
+
   EndIf
 EndProcedure
 
@@ -1527,14 +1627,14 @@ If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_S
   ButtonGadget(5, 325, 110, 80, 24, "Log Filter")
   ButtonGadget(3, 325, 150, 80, 24, "Start")
   ButtonGadget(4, 325, 180, 80, 24, "Stop")
-
+  
   SetWindowTransparency(0, 0)
   HideWindow(0,#False)
   Repeat : Until WindowEvent() = 0
   SetWindowTransparency(0, 255)
-
- 
-
+  
+  
+  
 EndIf
 
 
@@ -1574,8 +1674,8 @@ Repeat
               Select menuId
                 Case 0
                   HideWindow(0,#False)
-                  SetWindowAndOverlayIcon(WindowID(0),menuContainerIndex)
-
+                  SetOverlayIcon(WindowID(0),menuContainerIndex)
+                  
                 Case 1
                   ShowLogs(menuContainerIndex)
                 Case 2 ; Exit 
@@ -1636,7 +1736,7 @@ Repeat
             EndSelect
             
           Case #PB_Event_CloseWindow
-          
+            
             If IsRunning()
               HideWindow(0,#True)
             Else
@@ -1701,7 +1801,7 @@ Repeat
               SetActiveWindow(4)
               SetActiveGadget(40)
               SetGadgetItemState(40,patternCount(currentContainerIndex)-1,#PB_ListIcon_Selected)
-             closeWindow = #True
+              closeWindow = #True
             EndIf
           Case 25
             closeWindow = #True
@@ -1732,6 +1832,14 @@ Repeat
             bgColor(currentContainerIndex) = bgCol
             UpdateMonitorList()
             SaveSettings()
+            If containerStarted(currentContainerIndex)
+              If trayID(currentContainerIndex) = 0
+                CreateMonitorIcon(currentContainerIndex, innerColor(currentContainerIndex), bgColor(currentContainerIndex))
+              Else
+                UpdateMonitorIcon(currentContainerIndex, patternColor(currentContainerIndex,lastMatchPattern(currentContainerIndex)))
+              EndIf
+              HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
+            EndIf 
             closeWindow = #True
           Case 55
             closeWindow = #True
@@ -1739,6 +1847,9 @@ Repeat
       EndIf
       If closeWindow
         CloseWindow(5)
+        SetActiveGadget(0)
+        SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
+        UpdateButtonStates()
       EndIf 
     Case 3: ;Edit Patterns
       
@@ -1760,21 +1871,22 @@ Repeat
           Case 33
             patterns(currentContainerIndex,currentPatternIndex) = GetGadgetText(30)
             patternColor(currentContainerIndex,currentPatternIndex) = patCol
-            HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex))
-            
+            If containerStarted(currentContainerIndex)
+              HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
+            EndIf 
             SaveSettings()
             closeWindow = #True
           Case 35
             closeWindow = #True
         EndSelect
-       
+        
       EndIf
-       If  closeWindow 
-          UpdatePatternList(currentContainerIndex)
-          SetActiveGadget(40)
-          SetGadgetItemState(40,currentPatternIndex,#PB_ListIcon_Selected)
-          CloseWindow(3)
-        EndIf
+      If  closeWindow 
+        UpdatePatternList(currentContainerIndex)
+        SetActiveGadget(40)
+        SetGadgetItemState(40,currentPatternIndex,#PB_ListIcon_Selected)
+        CloseWindow(3)
+      EndIf
     Case 4: ;Patterns
       closeWindow = #False
       If Event =  #PB_Event_CloseWindow
@@ -1817,7 +1929,7 @@ Repeat
         CloseWindow(4)
       EndIf
     Case 6:
-     closeWindow = #False
+      closeWindow = #False
       If Event =  #PB_Event_CloseWindow
         closeWindow = #True
       ElseIf Event = #PB_Event_Gadget
@@ -1839,13 +1951,13 @@ Repeat
         
         ForEach logWindows()
           If logWindows()\winID = Window
-                    SetWindowAndOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
+            SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
             Break;
           EndIf
         Next
         
-      
-      
+        
+        
       ElseIf Event =  #PB_Event_SizeWindow Or Event =  #PB_Event_MoveWindow
         ForEach logWindows()
           If logWindows()\winID = Window
@@ -1875,6 +1987,9 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     If containterMetaData(index)\smallIconHandle
       DestroyIcon_(containterMetaData(index)\smallIconHandle)
     EndIf 
+    If containterMetaData(index)\overlayIconHandle
+      DestroyIcon_(containterMetaData(index)\overlayIconHandle)
+    EndIf 
   Next
 CompilerEndIf
 
@@ -1885,8 +2000,8 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 397
-; FirstLine = 383
+; CursorPosition = 1989
+; FirstLine = 1965
 ; Folding = ----------
 ; Optimizer
 ; EnableThread
