@@ -47,8 +47,8 @@ Structure ContainterMetaData
   logWindowW.l
   logWindowH.l
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    bigIconHandle.i
-    smallIconHandle.i
+    ;bigIconHandle.i
+    ;smallIconHandle.i
     overlayIconHandle.i
   CompilerEndIf
 EndStructure
@@ -186,7 +186,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   EndProcedure
   
   ; --- HICON CREATION PROCEDURE WITH CIRCLE AND TRANSPARENCY ---
-  Procedure.i CreateCircularOverlayHIcon(index)
+  Procedure.i CreateCircularHIcon(index)
     Protected hIcon.i
     Protected ii.ICONINFO
     Protected w, h
@@ -441,38 +441,38 @@ EndProcedure
 
 ; -------------------- MONITOR ICON --------------------
 
-
-Procedure CreateInfoImage(index, innerCol, bgCol)
-  
-  If  CreateImage(1000+index, #ICON_SIZE, #ICON_SIZE, 32)
-    infoImageID(index)  = 1000+index
-    
-    
-    If StartDrawing(ImageOutput(infoImageID(index)))
-      w = #ICON_SIZE
-      h =   #ICON_SIZE
-      Box(0, 0, w, h, bgColor(index)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
-                                      ;Circle(w/2, h/2, w/2, bgColor(index))
-      
-      Box(#ICON_SIZE*0.1, #ICON_SIZE*0.1, w-#ICON_SIZE*0.1*2, h-#ICON_SIZE*0.1*2, containerStatusColor(index)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
-      
-      ;Circle(w/2, h/2, w/2- #ICON_SIZE*0.1, containerStatusColor(index))
-      StopDrawing()
-    EndIf 
-    ; Debug infoImageID(index) 
-    If #False And StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
-      VectorSourceColor(RGBA(0,0,0,0))
-      VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
-      ;AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1)
-      ;FillPath()
-      FillVectorOutput()
-      VectorSourceColor(RGBA(Red(innerCol), Green(innerCol), Blue(innerCol), 255))
-      AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 2)
-      FillPath()
-      StopVectorDrawing()
-    EndIf
-  EndIf
-EndProcedure
+; 
+; Procedure CreateInfoImage(index, innerCol, bgCol)
+;   
+;   If  CreateImage(1000+index, #ICON_SIZE, #ICON_SIZE, 32)
+;     infoImageID(index)  = 1000+index
+;     
+;     
+;     If StartDrawing(ImageOutput(infoImageID(index)))
+;       w = #ICON_SIZE
+;       h =   #ICON_SIZE
+;       Box(0, 0, w, h, bgColor(index)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
+;                                       ;Circle(w/2, h/2, w/2, bgColor(index))
+;       
+;       Box(#ICON_SIZE*0.1, #ICON_SIZE*0.1, w-#ICON_SIZE*0.1*2, h-#ICON_SIZE*0.1*2, containerStatusColor(index)) ; fully transparent; Draw filled circle in opaque color (e.g., cyan)
+;       
+;       ;Circle(w/2, h/2, w/2- #ICON_SIZE*0.1, containerStatusColor(index))
+;       StopDrawing()
+;     EndIf 
+;     ; Debug infoImageID(index) 
+;     If #False And StartVectorDrawing(ImageVectorOutput(infoImageID(index)))
+;       VectorSourceColor(RGBA(0,0,0,0))
+;       VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
+;       ;AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 1)
+;       ;FillPath()
+;       FillVectorOutput()
+;       VectorSourceColor(RGBA(Red(innerCol), Green(innerCol), Blue(innerCol), 255))
+;       AddPathCircle(#ICON_SIZE/2, #ICON_SIZE/2, #ICON_SIZE/2 - 2)
+;       FillPath()
+;       StopVectorDrawing()
+;     EndIf
+;   EndIf
+; EndProcedure
 
 
 
@@ -621,7 +621,7 @@ Procedure SetOverlayIcon(winID,index)
   ; Only ITaskbarList3 can set overlay
   If interfacePtr <> 0
     ; Create Cyan overlay image
-     Protected Overlay = CreateCircularOverlayHIcon(index)
+     Protected Overlay = CreateCircularHIcon(index)
 
     If containterMetaData(index)\overlayIconHandle
       DestroyIcon_(containterMetaData(index)\overlayIconHandle)
@@ -688,7 +688,7 @@ Procedure RemoveOverlayIcon(winID)
   If interfacePtr <> 0
     ; Create Cyan overlay image
     
-    Protected Overlay = CreateCircularOverlayHIcon(index)
+    Protected Overlay = CreateCircularHIcon(index)
     ; Set overlay icon (vtable index 18)
     Protected *SetOverlayIcon = PeekI(vtbl + 18*SizeOf(Integer))
     
@@ -744,15 +744,8 @@ Procedure CreateWindowIcon(winID,index)
 ;         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
 ;       EndIf 
       
-      
-      SmallIconHandle =  CreateHIconFromImage(infoImageID(index))
-
-      If SmallIconHandle
-        If containterMetaData(index)\smallIconHandle
-          DestroyIcon_(containterMetaData(index)\smallIconHandle)
-        EndIf 
-        containterMetaData(index)\smallIconHandle = SmallIconHandle
-        SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, SmallIconHandle)
+      If infoImageID(index)
+        SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, infoImageID(index))
       EndIf
     EndIf 
     SetOverlayIcon(WindowID(winID),index)
@@ -776,11 +769,15 @@ EndProcedure
 
 Procedure CreateMonitorIcon(index, innerCol, bgCol)
   
-  CreateInfoImage(index, innerCol, bgCol)
+  ;CreateInfoImage(index, innerCol, bgCol)
+  If infoImageID(index) 
+    DestroyIcon_(infoImageID(index) )
+  EndIf 
+  infoImageID(index) = CreateCircularHIcon(index)
   
   If trayID(index) = 0
     trayID(index) = index + 1
-    AddSysTrayIcon(trayID(index), WindowID(0), ImageID(infoImageID(index)))
+    AddSysTrayIcon(trayID(index), WindowID(0), infoImageID(index))
     SysTrayIconToolTip(trayID(index), tooltip(index))
     CreatePopupImageMenu(1000+index, #PB_Menu_SysTrayLook)
     MenuItem(1000+index*10, "Open")
@@ -789,7 +786,7 @@ Procedure CreateMonitorIcon(index, innerCol, bgCol)
     MenuItem(1000+index*10+2, "Exit")
     SysTrayIconMenu(trayID(index), MenuID(1000+index))   
   Else
-    ChangeSysTrayIcon(trayID(index), ImageID(infoImageID(index)))
+    ChangeSysTrayIcon(trayID(index), infoImageID(index))
   EndIf
   ForEach logWindows()
     If logWindows()\containerIndex = index
@@ -1485,7 +1482,7 @@ EndProcedure
 
 
 
-Procedure ResizeLogWindows()  
+Procedure ResizeLogWindow()  
   ForEach logWindows()
     If logWindows()\winID = EventWindow()
       
@@ -1501,7 +1498,7 @@ Procedure ResizeLogWindows()
   Next
 EndProcedure 
 
-Procedure MoveLogWindows()  
+Procedure MoveLogWindow()  
   ForEach logWindows()
     If logWindows()\winID = EventWindow()
       CurrentX = WindowX(EventWindow())
@@ -1516,7 +1513,7 @@ Procedure MoveLogWindows()
 EndProcedure 
 
 
-Procedure CloseLogWindows()
+Procedure CloseLogWindow()
   CloseWindow(EventWindow())
   ForEach logWindows()
     If logWindows()\winID = EventWindow()
@@ -1598,9 +1595,9 @@ Procedure ShowLogs(index)
     logWindows()\winID = winID
     logWindows()\editorGadgetID = editorID
     logWindows()\containerIndex = index
-    BindEvent(#PB_Event_SizeWindow, @ResizeLogWindows(),winID)
-    BindEvent(#PB_Event_CloseWindow, @CloseLogWindows(),winID)
-    BindEvent(#PB_Event_MoveWindow, @MoveLogWindows(),winID)
+    BindEvent(#PB_Event_SizeWindow, @ResizeLogWindow(),winID)
+    BindEvent(#PB_Event_CloseWindow, @CloseLogWindow(),winID)
+    BindEvent(#PB_Event_MoveWindow, @MoveLogWindow(),winID)
     
     ScrollEditorToBottom(editorID)
 
@@ -1981,15 +1978,14 @@ CloseWindow(0)
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   ;Free Windows Icons
   ForEach logWindows()
-    If containterMetaData(index)\bigIconHandle
-      DestroyIcon_(containterMetaData(index)\bigIconHandle)
-    EndIf 
-    If containterMetaData(index)\smallIconHandle
-      DestroyIcon_(containterMetaData(index)\smallIconHandle)
-    EndIf 
     If containterMetaData(index)\overlayIconHandle
       DestroyIcon_(containterMetaData(index)\overlayIconHandle)
     EndIf 
+  Next
+  For i = 0 To monitorCount-1
+    If infoImageId(i)
+      DestroyIcon_(infoImageId(i))
+    EndIf
   Next
 CompilerEndIf
 
@@ -2000,9 +1996,9 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1989
-; FirstLine = 1965
-; Folding = ----------
+; CursorPosition = 1515
+; FirstLine = 1490
+; Folding = ---------
 ; Optimizer
 ; EnableThread
 ; EnableXP
