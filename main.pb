@@ -22,7 +22,9 @@ Global Dim containerName.s(#MAX_CONTAINERS-1)
 Global Dim bgColor.l(#MAX_CONTAINERS-1)
 Global Dim innerColor.l(#MAX_CONTAINERS-1)
 Global Dim neutralInnerColor.l(#MAX_CONTAINERS-1)
-Global Dim infoImageID.l(#MAX_CONTAINERS-1)
+Global Dim infoImageID.q(#MAX_CONTAINERS-1)
+Global Dim infoImageRunningID.q(#MAX_CONTAINERS-1)
+
 Global Dim dockerProgramID(#MAX_CONTAINERS-1)
 Global Dim patternCount.l(#MAX_CONTAINERS-1)
 Global Dim lastMatchTime.l(#MAX_CONTAINERS-1)
@@ -72,7 +74,7 @@ Enumeration KeyboardEvents
   #EventOk
 EndEnumeration
 
-
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
 PrototypeC SetProcAppID(AppID.p-unicode) ; wide string (LPWSTR)
 
 Global SetCurrentProcessExplicitAppUserModelID.SetProcAppID
@@ -101,6 +103,587 @@ EndProcedure
 
 ; --- Example usage (call at program start, before opening windows) ---
 ;SetProcessAppId("com.mycompany.myapp.uniqueid")
+CompilerEndIf 
+
+
+
+; Dark Theme -----------------------------------------------------------------------
+
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  
+  Global themeBgBrush 
+  
+  ; -------------------- Constants --------------------
+  #DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+  #GWL_WNDPROC = -4
+  #WM_PAINT = 15
+  #LVM_GETHEADER = $1000 + 31
+  
+  ; -------------------- Global Variables --------------------
+  Global oldHeaderProc.l
+  
+  ; -------------------- Dynamic API Helpers --------------------
+  Procedure DwmSetWindowAttributeDynamic(hwnd.i, dwAttribute.i, *pvAttribute, cbAttribute.i)
+    Protected result = 0
+    Protected hDll = OpenLibrary(#PB_Any, "dwmapi.dll")
+    If hDll
+      Protected *fn = GetFunction(hDll, "DwmSetWindowAttribute")
+      If *fn
+        result = CallFunctionFast(*fn, hwnd, dwAttribute, *pvAttribute, cbAttribute)
+      EndIf
+      CloseLibrary(hDll)
+    EndIf
+    ProcedureReturn result
+  EndProcedure
+  
+  Procedure SetDarkTitleBar(hwnd.i, enable)
+    Protected attrValue.i = Bool(enable)
+    DwmSetWindowAttributeDynamic(hwnd, #DWMWA_USE_IMMERSIVE_DARK_MODE, @attrValue, SizeOf(Integer))
+  EndProcedure
+  
+  Procedure SetWindowThemeDynamic(hwnd.i, subAppName.s)
+    Protected hUxTheme = OpenLibrary(#PB_Any, "uxtheme.dll")
+    If hUxTheme
+      Protected *fn = GetFunction(hUxTheme, "SetWindowTheme")
+      If *fn
+        CallFunctionFast(*fn, hwnd, @subAppName, 0)
+      EndIf
+      CloseLibrary(hUxTheme)
+    EndIf
+  EndProcedure
+  
+  
+  
+  ; -------------------- Dark Mode Helpers --------------------
+  Global IsDarkModeActiveCached = #False
+  Procedure IsDarkModeActive()
+    Protected key, result = 0, value.l, size = SizeOf(Long)
+    If RegOpenKeyEx_(#HKEY_CURRENT_USER, "Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", 0, #KEY_READ, @key) = #ERROR_SUCCESS
+      If RegQueryValueEx_(key, "AppsUseLightTheme", 0, 0, @value, @size) = #ERROR_SUCCESS
+        result = Bool(value = 0) ; 0 = dark mode
+        IsDarkModeActiveCached = result
+      EndIf
+      RegCloseKey_(key)
+    EndIf
+    ProcedureReturn result
+  EndProcedure
+  
+  
+  
+  
+  ; -------------------- Dark Mode Application --------------------
+  Procedure ApplyThemeToWindowHandle(hWnd)
+    
+    Protected bg, fg
+    If IsDarkModeActiveCached
+      bg = RGB(30,30,30)
+      fg = RGB(220,220,220)
+      SetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND, CreateSolidBrush_(bg))
+      InvalidateRect_(hWnd, #Null, #True)
+    Else
+      bg = RGB(255,255,255)
+      fg = RGB(0,0,0)
+      Protected currentBrush = GetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND)
+      
+      ; Set to default system color
+      Protected defaultBrush = CreateSolidBrush_(GetSysColor_(#COLOR_3DFACE))
+      SetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND, defaultBrush)
+      InvalidateRect_(hWnd, #Null, #True)
+      
+      ; Clean up old brush if it's not a stock object
+      If currentBrush > 31  ; Stock objects are values 0-31
+        DeleteObject_(currentBrush)
+      EndIf
+      
+      ; Redraw
+      InvalidateRect_(hWnd, #Null, #True)
+    EndIf
+    Debug "ApplyThemeToWindowHandle"
+    Debug IsDarkModeActiveCached
+    
+    
+    ; Title bar
+    SetDarkTitleBar(hWnd, IsDarkModeActiveCached)
+  EndProcedure
+  
+  Procedure ApplyWindowTheme(winID)
+    If IsDarkModeActiveCached
+      SetWindowThemeDynamic(WindowID(winID), "DarkMode_Explorer")
+    Else
+      SetWindowThemeDynamic(WindowID(winID), "Explorer")
+    EndIf
+  EndProcedure
+  
+  Procedure ApplyGadgetTheme(gadgetId)
+    If IsDarkModeActiveCached
+      SetWindowThemeDynamic(gadgetId, "DarkMode_Explorer")
+    Else
+      SetWindowThemeDynamic(gadgetId, "Explorer")
+    EndIf
+  EndProcedure
+  
+  
+  
+  
+  
+  ; --- Windows API Constants (if not already defined in your PureBasic environment) ---
+  ; --- Windows API Constants ---
+  #LVM_FIRST = $1000
+  #LVM_GETHEADER = #LVM_FIRST + 31
+  #LVM_SETCOLUMNWIDTH = #LVM_FIRST + 30
+  #GWL_STYLE = -16
+  #HDS_NOSIZING = $0800
+  #HDS_HIDDENX = $0080 ; HDS_HIDDEN is not for hiding the divider, but is sometimes related to styling
+  
+  
+  
+  Procedure ApplySingleColumnListIcon(listHwnd)
+    
+    
+    ; 1. Ensure only one column exists (index 0)
+    While SendMessage_(listHwnd, #LVM_DELETECOLUMN, 1, 0)
+    Wend
+    
+    ; 2. Disable Resizing Action
+    Protected hwndHeader = SendMessage_(listHwnd, #LVM_GETHEADER, 0, 0)
+    If hwndHeader
+      Protected HeaderStyle = GetWindowLong_(hwndHeader, #GWL_STYLE)
+      SetWindowLong_(hwndHeader, #GWL_STYLE, HeaderStyle | #HDS_NOSIZING)
+      RedrawWindow_(hwndHeader, 0, 0, #RDW_FRAME | #RDW_INVALIDATE | #RDW_UPDATENOW)
+    EndIf
+    
+    ; 3. Calculate and Manually Oversize Column Width
+    Protected ListIconRect.RECT
+    If GetClientRect_(listHwnd, @ListIconRect)
+      Protected ClientWidth = ListIconRect\Right - ListIconRect\Left
+      
+      ; Set the width intentionally wider than the gadget.
+      ; This pushes the final divider line off the visible area.
+      Protected OversizeWidth = ClientWidth + 3 ; Use +20 for a generous buffer.
+      
+      ; Set the column 0 width to the calculated oversize width.
+      SendMessage_(listHwnd, #LVM_SETCOLUMNWIDTH, 0, OversizeWidth)
+    EndIf
+    
+    ; 4. Disable the Horizontal Scrollbar
+    ; We MUST do this immediately after oversizing the column to prevent the 
+    ; horizontal scrollbar from appearing.
+    ShowScrollBar_(listHwnd, #SB_HORZ, #False)
+  EndProcedure
+  
+  
+  #NM_CUSTOMDRAW = -12
+  #CDRF_DODEFAULT = 0
+  #CDRF_NOTIFYITEMDRAW = $20
+  #CDDS_PREPAINT = 1
+  #CDDS_ITEMPREPAINT = $10001
+  
+  Global NewMap ListIconDarkThemeProcs()
+  
+  
+  Procedure ListIconDarkThemeProc(hwnd, msg, wParam, lParam)
+    
+    Protected bg 
+    Protected fg 
+    If IsDarkModeActiveCached
+      bg = RGB(30, 30, 30)
+      fg = RGB(255, 255, 255)
+    Else
+      bg = RGB(255, 255, 255)
+      fg = RGB(30, 30, 30) 
+    EndIf
+    
+    If msg = #WM_NOTIFY
+      Protected *nmhdr.NMHDR = lParam
+      
+      Select *nmhdr\code
+        Case #HDN_BEGINTRACKA, #HDN_BEGINTRACKW
+          ProcedureReturn 1 ; prevent resizing
+        Case #NM_CUSTOMDRAW
+          Protected *nmcd.NMCUSTOMDRAW = lParam
+          
+          Debug "Custom draw from hwnd: " + Str(*nmhdr\hwndFrom)
+          Debug "Draw stage: " + Str(*nmcd\dwDrawStage)
+          
+          Select *nmcd\dwDrawStage
+            Case #CDDS_PREPAINT
+              Debug "PREPAINT"
+              ProcedureReturn #CDRF_NOTIFYITEMDRAW
+              
+            Case #CDDS_ITEMPREPAINT
+              Debug "ITEMPREPAINT - Setting colors"
+              SetTextColor_(*nmcd\hdc, fg)
+              SetBkColor_(*nmcd\hdc, bg)
+              ProcedureReturn #CDRF_NEWFONT
+          EndSelect
+      EndSelect
+    EndIf
+    
+    oldListViewProc = ListIconDarkThemeProcs(Str(hwnd))
+    
+    
+    ; Call original window procedure
+    CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+      ProcedureReturn CallWindowProc_(oldListViewProc, hwnd, msg, wParam, lParam)
+    CompilerElse
+      ProcedureReturn CallWindowProcA_(oldListViewProc, hwnd, msg, wParam, lParam)
+    CompilerEndIf
+  EndProcedure
+  
+  Procedure ApplyDarkListIconTheme(listHwnd)
+    Protected bg 
+    Protected fg 
+    If IsDarkModeActiveCached
+      bg = RGB(30, 30, 30)
+      fg = RGB(255, 255, 255)
+    Else
+      bg = RGB(255, 255, 255)
+      fg = RGB(30, 30, 30) 
+    EndIf
+    
+    ; Set colors directly via Windows messages instead of SetGadgetColor
+    SendMessage_(listHwnd, #LVM_SETBKCOLOR, 0, bg)
+    SendMessage_(listHwnd, #LVM_SETTEXTBKCOLOR, 0, bg)
+    SendMessage_(listHwnd, #LVM_SETTEXTCOLOR, 0, fg)
+    
+    Protected headerHwnd = SendMessage_(listHwnd, #LVM_GETHEADER, 0, 0)
+    If headerHwnd
+      If IsDarkModeActiveCached
+        SetWindowThemeDynamic(headerHwnd, "DarkMode_ItemsView")
+      Else
+        SetWindowThemeDynamic(headerHwnd, "ItemsView")
+      EndIf    
+      ; FIRST: GET the old window proc
+      ; SECOND: SET the new window proc
+      CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+        If FindMapElement(ListIconDarkThemeProcs(),Str(listHwnd)) = 0
+          ListIconDarkThemeProcs(Str(listHwnd)) = GetWindowLongPtr_(listHwnd, #GWL_WNDPROC)
+        EndIf 
+        ;oldListViewProc = GetWindowLongPtr_(listHwnd, #GWL_WNDPROC)
+        SetWindowLongPtr_(listHwnd, #GWL_WNDPROC, @ListIconDarkThemeProc())
+      CompilerElse
+        If FindMapElement(ListIconDarkThemeProcs(),Str(listHwnd)) = 0
+          ListIconDarkThemeProcs(listHwnd) =  GetWindowLong_(listHwnd, #GWL_WNDPROC)
+        EndIf 
+        
+        ; oldListViewProc = GetWindowLong_(listHwnd, #GWL_WNDPROC)
+        SetWindowLong_(listHwnd, #GWL_WNDPROC, @ListIconDarkThemeProc())
+      CompilerEndIf
+      
+      
+      InvalidateRect_(headerHwnd, 0, #True)
+    EndIf
+  EndProcedure
+  
+  
+  Global NewMap StaticControlDarkThemeProcs()
+  
+  Procedure StaticControlDarkThemeProc(hwnd, msg, wParam, lParam)
+    Protected oldProc = StaticControlDarkThemeProcs(Str(hwnd))
+    Protected fg 
+    If IsDarkModeActiveCached
+      bg = RGB(30, 30, 30)
+      fg = RGB(255, 255, 255)
+    Else
+      bg = RGB(255, 255, 255)
+      fg = RGB(30, 30, 30) 
+    EndIf
+    Select msg
+      Case #WM_PAINT
+        Protected ps.PAINTSTRUCT
+        Protected hdc = BeginPaint_(hwnd, @ps)
+        Protected rect.RECT
+        
+        GetClientRect_(hwnd, @rect)
+        
+        ; Fill background
+        If Not themeBgBrush
+          themeBgBrush = CreateSolidBrush_(bg)      
+        EndIf
+        
+        ; FillRect_(hdc, @rect, themeBgBrush)
+        
+        ; Get and select the control's font
+        Protected hFont = SendMessage_(hwnd, #WM_GETFONT, 0, 0)
+        If hFont
+          SelectObject_(hdc, hFont)
+        EndIf
+        
+        ; Enable antialiasing
+        SetBkMode_(hdc, #TRANSPARENT)
+        
+        SetTextColor_(hdc, fg)
+        
+        
+        ; Get text
+        Protected textLen = GetWindowTextLength_(hwnd) + 1
+        Protected *text = AllocateMemory(textLen * SizeOf(Character))
+        GetWindowText_(hwnd, *text, textLen)
+        
+        ; Get alignment style
+        Protected style = GetWindowLong_(hwnd, #GWL_STYLE)
+        Protected format = #DT_VCENTER | #DT_SINGLELINE
+        
+        If style & #SS_CENTER
+          format | #DT_CENTER
+        ElseIf style & #SS_RIGHT
+          format | #DT_RIGHT
+        Else
+          format | #DT_LEFT
+        EndIf
+        
+        DrawText_(hdc, *text, -1, @rect, format)
+        
+        FreeMemory(*text)
+        EndPaint_(hwnd, @ps)
+        
+        ProcedureReturn 0
+        
+      Case #WM_ERASEBKGND
+        ProcedureReturn 1
+    EndSelect
+    
+    ProcedureReturn CallWindowProc_(oldProc, hwnd, msg, wParam, lParam)
+  EndProcedure
+  
+Procedure ApplyEditorGadgetTheme(gadgetHandle)
+  Protected style, exStyle
+      Protected charFormat.CHARFORMAT2
+
+  DwmSetWindowAttributeDynamic(gadgetHandle, #DWMWA_USE_IMMERSIVE_DARK_MODE, @IsDarkModeActiveCached, SizeOf(Integer))
+   ; Set left and right margins (in pixels)
+    ; LOWORD = left margin, HIWORD = right margin
+    Protected leftMargin = 10  ; 10 pixels
+    Protected rightMargin = 10 ; 10 pixels
+    SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
+    
+  If IsDarkModeActiveCached
+    ; Set black background
+    SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(0, 0, 0))
+    
+    ; Set white text color for the entire content
+    charFormat\cbSize = SizeOf(CHARFORMAT2)
+    charFormat\dwMask = #CFM_COLOR
+    charFormat\crTextColor = RGB(255, 255, 255)
+    SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, @charFormat)
+    
+    SetWindowThemeDynamic(gadgetHandle, "DarkMode_Explorer")
+    
+    ; Force complete redraw including non-client area
+    RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+    
+  Else
+    ; Set white background
+    SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255))
+    
+    ; Set black text color
+    charFormat\cbSize = SizeOf(CHARFORMAT2)
+    charFormat\dwMask = #CFM_COLOR
+    charFormat\crTextColor = RGB(0, 0, 0)
+    SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, @charFormat)
+    
+    SetWindowThemeDynamic(gadgetHandle, "Explorer")
+    
+    RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+  EndIf
+  
+  InvalidateRect_(gadgetHandle, #Null, #True)
+  UpdateWindow_(gadgetHandle)
+EndProcedure
+
+Procedure ApplyThemeToWindowChildren(hWnd, lParam)
+  
+    Protected className.s = Space(256)
+    Protected length = GetClassName_(hWnd, @className, 256)
+    
+    
+    If length > 0
+      className = PeekS(@className)
+      Select LCase(className)
+        Case "button"
+          ; Button, CheckBox, Option gadgets
+          ApplyGadgetTheme(hWnd)
+        Case "static"
+          Protected textLength = GetWindowTextLength_(hWnd)
+  
+  If textLength = 0
+    ; No text = likely an ImageGadget - skip theming
+    Debug "IMAGE (no text) ############"
+    ProcedureReturn #True
+  EndIf
+          ; Subclass the static control to handle its own painting
+          CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+            Protected oldProc = SetWindowLongPtr_(hWnd, #GWLP_WNDPROC, @StaticControlDarkThemeProc())
+          CompilerElse
+            Protected oldProc = SetWindowLong_(hWnd, #GWL_WNDPROC, @StaticControlDarkThemeProc())
+          CompilerEndIf
+          
+          StaticControlDarkThemeProcs(Str(hWnd)) = oldProc
+          InvalidateRect_(hWnd, #Null, #True)
+        Case "syslistview32"
+          ; This is ListIconGadget
+          ApplyDarkListIconTheme(hWnd)
+          
+         
+        Case "edit"
+          ; StringGadget, EditorGadget
+          ApplyGadgetTheme(hWnd)
+          
+        Case "combobox"
+          ; ComboBoxGadget
+          ApplyGadgetTheme(hWnd)
+          
+        Case "listbox"
+          ; ListBoxGadget (not ListIconGadget!)
+          ApplyGadgetTheme(hWnd)
+          
+
+          
+        Case "systreeview32"
+          ; TreeGadget
+          ApplyGadgetTheme(hWnd)
+          
+        Case "msctls_trackbar32"
+          ; TrackBarGadget
+          ApplyGadgetTheme(hWnd)
+          
+        Case "richedit50w", "richedit20w", "richedit"
+          ; EditorGadget - needs special handling
+          ApplyEditorGadgetTheme(hWnd)
+          
+      EndSelect
+    EndIf
+    InvalidateRect_(hwnd, #Null, #True)
+    
+    ProcedureReturn #True
+  EndProcedure
+  
+  
+  Procedure ApplyThemeHandle(hWnd)
+    ApplyThemeToWindowHandle(hWnd)
+    EnumChildWindows_(hWnd, @ApplyThemeToWindowChildren(), 0)
+    UpdateWindow_(hWnd)    
+  EndProcedure
+  
+CompilerEndIf
+
+
+Procedure ApplyTheme(winID)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    Protected hWnd = WindowID(winID)
+    ApplyThemeHandle(hWnd)
+  CompilerEndIf
+EndProcedure
+
+
+
+; Window Fade In without flicker
+
+
+Procedure ShowWindowFadeIn(winID)
+  
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    
+    Protected hWnd = WindowID(winID)
+    
+    ; Show window invisible to force rendering
+    ShowWindow_(hWnd, #SW_SHOWNA)  ; Show without activating               
+                                   ; Force complete render
+    UpdateWindow_(hWnd)
+    RedrawWindow_(hWnd, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
+    While PeekMessage_(@msg, hWnd, #WM_PAINT, #WM_PAINT, #PM_REMOVE)
+      DispatchMessage_(@msg)
+    Wend
+    ; Process all events
+    Repeat : Delay(1) : Until WindowEvent() = 0
+    
+    ; Hide it again
+    ;ShowWindow_(hWnd, #SW_HIDE)
+    
+    ; Now fade in with everything rendered
+    Protected hUser32 = OpenLibrary(#PB_Any, "user32.dll")
+    If hUser32
+      Protected *AnimateWindow = GetFunction(hUser32, "AnimateWindow")
+      If *AnimateWindow
+        CallFunctionFast(*AnimateWindow, hWnd, 300, $80000 | $20000)
+      EndIf
+      CloseLibrary(hUser32)
+    EndIf
+    
+  CompilerElse
+    HideWindow(winID,#False)
+  CompilerEndIf
+  
+EndProcedure
+
+
+
+
+; -------------------- Window Callback --------------------
+
+
+Procedure WindowCallback(hwnd, msg, wParam, lParam)
+  
+  Protected bg, fg
+  If IsDarkModeActiveCached
+    bg= RGB(30,30,30)
+    fg = RGB(220,220,220)
+  Else
+    bg = RGB(255,255,255)
+    fg = RGB(0,0,0)
+  EndIf
+  Select msg
+    Case #WM_SETTINGCHANGE
+      ; Check if it's a theme/color change
+      If lParam
+        Protected *themeName = lParam
+        Protected themeName.s = PeekS(*themeName)
+        
+        ; Windows sends "ImmersiveColorSet" when theme changes
+        If themeName = "ImmersiveColorSet"
+          Debug "Windows theme changed!"
+          
+          ; Reapply your dark/light theme
+          IsDarkModeActive() ; Update IsDarkModeActiveCached
+          
+          If  themeBgBrush
+            DeleteObject_(themeBgBrush)
+          EndIf 
+          If IsDarkModeActiveCached
+            bg = RGB(30, 30, 30)
+          Else
+            bg = RGB(255, 255, 255)
+          EndIf
+          themeBgBrush = CreateSolidBrush_(bg)      
+          
+          
+          ApplyThemeHandle(hwnd)
+          
+          
+          ; Force window redraw
+          InvalidateRect_(hwnd, #Null, #True)
+        EndIf
+      EndIf
+    Case #WM_CTLCOLORBTN
+      SetTextColor_(wParam, fg)
+      SetBkMode_(wParam, #TRANSPARENT)
+      
+      ; Get parent window's background
+      Protected parentBrush = GetClassLongPtr_(hwnd, #GCL_HBRBACKGROUND)
+      If parentBrush
+        ProcedureReturn parentBrush
+      Else
+        ProcedureReturn GetStockObject_(#NULL_BRUSH)
+      EndIf
+  EndSelect
+  
+  ProcedureReturn #PB_ProcessPureBasicEvents
+EndProcedure
+
+
+
+
+
 
 
 ;Windows Method
@@ -399,7 +982,7 @@ EndProcedure
 ; Constants
 #Notification_TimerID = 1 ; A unique ID for the timer
 #Notification_Duration = 2500 ; 5000 ms = 5 seconds
-#Notification_Width = 190
+#Notification_Width = 200
 #Notification_Height = 50
 Global notificationWinID = 0
 ; Procedure to create and show the notification
@@ -407,31 +990,23 @@ Procedure ShowSystrayNotification(index)
   ExamineDesktops()
   w = DesktopUnscaledX(DesktopWidth(0))
   h = DesktopUnscaledY(DesktopHeight(0))
-  winID  = OpenWindow(#PB_Any, w - #Notification_Width - 10, h - #Notification_Height - 10-80, #Notification_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool |#PB_Window_Invisible      )
+  winID  = OpenWindow(#PB_Any, w - #Notification_Width - 10 - 10, h - #Notification_Height - 10 - 80, #Notification_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool |#PB_Window_Invisible      )
   If winID
     StickyWindow(winID,#True)
-    textGadget = TextGadget(#PB_Any, 25, 5, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
-    colorbgGadget = ContainerGadget(#PB_Any,10, 0,26,26,#PB_Container_BorderLess)
-    colorGadget = ContainerGadget(#PB_Any,5, 5,16,16,#PB_Container_BorderLess)
-    
-    CloseGadgetList()
-    CloseGadgetList()
-    SetGadgetColor(colorGadget,#PB_Gadget_BackColor,bgColor(index))
-    SetGadgetColor(colorbgGadget,#PB_Gadget_BackColor,RGB(0,147,242))
-    
-    
-    
+    textGadget = TextGadget(#PB_Any, 30, 5, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
+
+    ImageGadget(#PB_Any,14, 0,26,26,ImageID(infoImageRunningID(index)),  #PB_Image_Raised)
+   
     If notificationWinID <>0
       CloseWindow(notificationWinID)
       notificationWinID = 0
     EndIf
     notificationWinID = winID
     AddWindowTimer(winID, #Notification_TimerID, #Notification_Duration)
-
-     SetWindowTransparency(winID, 0)
-     HideWindow(winID,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(winID, 255)
+    
+    ApplyTheme(winID)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(winID)
     
     
   EndIf
@@ -621,8 +1196,8 @@ Procedure SetOverlayIcon(winID,index)
   ; Only ITaskbarList3 can set overlay
   If interfacePtr <> 0
     ; Create Cyan overlay image
-     Protected Overlay = CreateCircularHIcon(index)
-
+    Protected Overlay = CreateCircularHIcon(index)
+    
     If containterMetaData(index)\overlayIconHandle
       DestroyIcon_(containterMetaData(index)\overlayIconHandle)
     EndIf 
@@ -726,7 +1301,7 @@ EndProcedure
 
 Procedure CreateWindowIcon(winID,index)
   
-   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Call the procedure to get the icon handles
     iconBG =  CreateImage(#PB_Any, #ICON_SIZE, #ICON_SIZE)
     If iconBG
@@ -734,15 +1309,15 @@ Procedure CreateWindowIcon(winID,index)
       Box(0, 0, #ICON_SIZE, #ICON_SIZE, bgColor(index))
       StopDrawing()
       
-;       BigIconHandle   =  CreateHIconFromImage(iconBG) ;Taskbar icon
-;       
-;       If BigIconHandle 
-;         If containterMetaData(index)\bigIconHandle
-;           DestroyIcon_(containterMetaData(index)\bigIconHandle)
-;         EndIf 
-;         containterMetaData(index)\bigIconHandle = BigIconHandle
-;         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
-;       EndIf 
+      ;       BigIconHandle   =  CreateHIconFromImage(iconBG) ;Taskbar icon
+      ;       
+      ;       If BigIconHandle 
+      ;         If containterMetaData(index)\bigIconHandle
+      ;           DestroyIcon_(containterMetaData(index)\bigIconHandle)
+      ;         EndIf 
+      ;         containterMetaData(index)\bigIconHandle = BigIconHandle
+      ;         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
+      ;       EndIf 
       
       If infoImageID(index)
         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, infoImageID(index))
@@ -750,7 +1325,7 @@ Procedure CreateWindowIcon(winID,index)
     EndIf 
     SetOverlayIcon(WindowID(winID),index)
     SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, ExtractIcon_(GetModuleHandle_(0), ProgramFilename(), 0))
-
+    
   CompilerEndIf
 EndProcedure
 
@@ -817,9 +1392,13 @@ Procedure SetListItemStarted(index,started)
       ClosePath()
       VectorSourceColor(RGBA(255, 255, 255, 255))
       StrokePath(4)
+      
+          infoImageRunningID(index) = img
+
     EndIf
     StopVectorDrawing()
-    SetGadgetItemImage(0, index, ImageID(img))
+    SetGadgetItemImage(0, index, ImageID(  img))
+     
   EndIf
 EndProcedure
 
@@ -970,10 +1549,10 @@ Procedure AddMonitorDialog()
     DisableGadget(13, #True)
     
     StickyWindow(1,#True)
-     SetWindowTransparency(1, 0)
-     HideWindow(1,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(1, 255)
+    
+    ApplyTheme(1)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(1)
   EndIf
 EndProcedure
 
@@ -999,10 +1578,11 @@ Procedure EditMonitorDialog(selIndex)
     EndIf
     
     StickyWindow(5,#True)
-     SetWindowTransparency(5, 0)
-     HideWindow(5,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(5, 255)
+    
+    ApplyTheme(5)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(5)
+    
   EndIf
 EndProcedure
 
@@ -1018,10 +1598,9 @@ Procedure EditColorsDialog(index)
     ButtonGadget(63,190,50,160,28,"Recreate Icon")
     ButtonGadget(64,80,100,80,24,"Close")
     StickyWindow(6,#True)
-     SetWindowTransparency(6, 0)
-     HideWindow(6,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(6, 255)
+    ApplyTheme(6)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(6)
   EndIf
 EndProcedure
 
@@ -1055,10 +1634,9 @@ Procedure AddPatternDialog(monitorIndex)
     patCol = RGB(255,0,0)
     SetGadgetColor(24,#PB_Gadget_BackColor,patCol)
     StickyWindow(2,#True)
-     SetWindowTransparency(2, 0)
-     HideWindow(2,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(2, 255)
+    ApplyTheme(2)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(2)
   EndIf
 EndProcedure
 
@@ -1080,10 +1658,9 @@ Procedure EditPatternDialog(index,selIndex)
     
     
     StickyWindow(3,#True)
-     SetWindowTransparency(3, 0)
-     HideWindow(3,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(3, 255)
+    ApplyTheme(3)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(3)
   EndIf
 EndProcedure
 
@@ -1093,7 +1670,7 @@ Procedure EditPatternsDialog(index)
     ProcedureReturn
   EndIf
   If OpenWindow(4,150,150,420,450,"Edit Log Filter",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
-    ListIconGadget(40,10, 10, 300, 430,"Log Filter",295,#PB_ListIcon_FullRowSelect|#PB_ListIcon_AlwaysShowSelection)
+    ListIconGadget(40,10, 10, 300, 430,"Log Filter",295,#PB_ListIcon_FullRowSelect|#PB_ListIcon_AlwaysShowSelection):ApplySingleColumnListIcon(GadgetID(40))
     ButtonGadget(41, 325, 10, 80, 24, "Add")
     ButtonGadget(43, 325, 40, 80, 24, "Remove")
     ButtonGadget(42, 325, 80, 80, 24, "Edit")
@@ -1104,10 +1681,9 @@ Procedure EditPatternsDialog(index)
     UpdatePatternButtonStates()
     
     StickyWindow(4,#True)
-     SetWindowTransparency(4, 0)
-     HideWindow(4,#False)
-     Repeat : Until WindowEvent() = 0
-     SetWindowTransparency(4, 255)
+    ApplyTheme(4)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(4)
   EndIf
 EndProcedure
 
@@ -1164,7 +1740,7 @@ Procedure StartDockerFollow(index)
   Debug "START"
   dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read| #PB_Program_Hide );
   Debug "STARTED"
-
+  
   If trayID(index) = 0
     CreateMonitorIcon(index, innerColor(index), bgColor(index))
   EndIf
@@ -1182,10 +1758,10 @@ EndProcedure
 
 ; -------------------- STOP DOCKER FOLLOW --------------------
 Procedure StopDockerFollow(index)
-    If notificationWinID <>0
-      CloseWindow(notificationWinID)
-      notificationWinID = 0
-    EndIf
+  If notificationWinID <>0
+    CloseWindow(notificationWinID)
+    notificationWinID = 0
+  EndIf
   If dockerProgramID(index) <> 0
     CloseProgram(dockerProgramID(index))
     dockerProgramID(index) = 0
@@ -1258,7 +1834,7 @@ Procedure OnMatch(index, patternIndex , line.s)
   lastMatch(index) = line
   lastMatchTime(index) = ElapsedMilliseconds()
   lastMatchPattern(index) = patternIndex
-
+  
   UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
 EndProcedure
 
@@ -1374,7 +1950,7 @@ Procedure CheckDockerOutput(index)
   Protected line.s
   Protected ProgramID.i = dockerProgramID(index)
   Protected dataRead.l ; Flag to track if ANY data was read
-
+  
   ; --- 1. Program Termination Check ---
   If ProgramID = 0 Or Not IsProgram(ProgramID)
     If containerStarted(index)
@@ -1386,7 +1962,6 @@ Procedure CheckDockerOutput(index)
     ProcedureReturn
   EndIf
   
-  Debug "START CheckDockerOutput"
   
   ; --- 2. Non-Blocking Read Loop ---
   Repeat
@@ -1397,13 +1972,12 @@ Procedure CheckDockerOutput(index)
     ;    on every pass, ensuring no error lines are missed or block the buffer.
     Repeat
       line = ReadProgramError(ProgramID) 
-      Debug "START CheckDockerOutput1 "+line
       
       If FindString(line,"Error response from daemon: No such container:",#PB_String_NoCase       )>0
-                StopDockerFollow(index)
-
+        StopDockerFollow(index)
+        
         MessageRequester("Error",line);
-       ProcedureReturn
+        ProcedureReturn
       EndIf 
       
       If line <> ""
@@ -1414,16 +1988,11 @@ Procedure CheckDockerOutput(index)
     
     ; B. Read Standard Output (stdout) - (NORMAL lines)
     ;    ReadProgramString() is BLOCKING, so we MUST check for data first.
-    Debug "START CheckDockerOutput2"
     
     If AvailableProgramOutput(ProgramID) > 0
-      ; Data is available, so ReadProgramString() will not block indefinitely.
-      Debug "START CheckDockerOutput3"
-     
+      ; Data is available, so ReadProgramString() will not block indefinitely.      
       
-      line = ReadProgramString(ProgramID)
-      Debug "START CheckDockerOutput4 "+line
-      
+      line = ReadProgramString(ProgramID)      
       If line <> ""
         HandleInputLine(index, line)
         dataRead = #True
@@ -1434,7 +2003,6 @@ Procedure CheckDockerOutput(index)
     ; loop or from stdout), we immediately run the full check again. This is
     ; essential because new data might have arrived during the processing of the last batch.
   Until dataRead = #False 
-  Debug "START CheckDockerOutput5"
   
   If ElapsedMilliseconds()-lastTimeOuputAdded>50
     lastTimeOuputAdded = ElapsedMilliseconds()
@@ -1442,8 +2010,7 @@ Procedure CheckDockerOutput(index)
   EndIf 
   
   
-      Debug "STOP CheckDockerOutput"
-
+  
 EndProcedure
 
 
@@ -1489,7 +2056,11 @@ Procedure ResizeLogWindow()
       CurrentW =WindowWidth(EventWindow())
       CurrentH =WindowHeight(EventWindow())
       If CurrentW >= 0 And CurrentH >= 0
-        ResizeGadget(logWindows()\editorGadgetID, 0, 0, CurrentW, CurrentH)
+        CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+         ResizeGadget(logWindows()\editorGadgetID, -2, -2, CurrentW+4, CurrentH+4) ;dark mode no border
+        CompilerElse
+         ResizeGadget(logWindows()\editorGadgetID, 0, 0, CurrentW, CurrentH)
+        CompilerEndIf 
         containterMetaData(logWindows()\containerIndex)\logWindowW = CurrentW
         containterMetaData(logWindows()\containerIndex)\logWindowH = CurrentH
       EndIf
@@ -1573,7 +2144,12 @@ Procedure ShowLogs(index)
     SetWindowColor(winID,RGB(0,0,0))
     
     StickyWindow(winID,#True) 
-    editorID = EditorGadget(#PB_Any, 0, 0,  containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      editorID = EditorGadget(#PB_Any, -2, -2,  containterMetaData(index)\logWindowW+4, containterMetaData(index)\logWindowH+4, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+      ;dark mode no border
+    CompilerElse
+      editorID = EditorGadget(#PB_Any, 0, 0,  containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+    CompilerEndIf 
     SetGadgetText(editorID, text$)
     ; Enable anti-aliasing with cross-platform font selection
     CompilerSelect #PB_Compiler_OS
@@ -1600,405 +2176,419 @@ Procedure ShowLogs(index)
     BindEvent(#PB_Event_MoveWindow, @MoveLogWindow(),winID)
     
     ScrollEditorToBottom(editorID)
-
-
-    SetWindowTransparency(winID, 0)
-    HideWindow(winID,#False)
-    Repeat : Until WindowEvent() = 0
+    
+    
+    
+    ApplyTheme(winID)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(winID)
+    
     
     Debug "CREATE ICON"
-   CreateWindowIcon(winID,index)
-   UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
-   Repeat : Until WindowEvent() = 0
-       SetWindowTransparency(winID, 255)
-
+    CreateWindowIcon(winID,index)
+    UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
+    
+    
   EndIf
 EndProcedure
 
-; -------------------- MAIN WINDOW --------------------
-If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget|  #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered|#PB_Window_Invisible  )
-  ListIconGadget(0, 10, 10, 300, 280,"Container",295,#PB_ListIcon_FullRowSelect)
-  ButtonGadget(1, 325, 10, 80, 24, "Add")
-  ButtonGadget(6, 325, 40, 80, 24, "Edit")
-  ButtonGadget(2, 325, 70, 80, 24, "Remove")
-  ButtonGadget(5, 325, 110, 80, 24, "Log Filter")
-  ButtonGadget(3, 325, 150, 80, 24, "Start")
-  ButtonGadget(4, 325, 180, 80, 24, "Stop")
-  
-  SetWindowTransparency(0, 0)
-  HideWindow(0,#False)
-  Repeat : Until WindowEvent() = 0
-  SetWindowTransparency(0, 255)
-  
-  
-  
-EndIf
 
 
-; Load persisted settings
-LoadSettings()
-UpdateMonitorList()
 
-; -------------------- MAIN EVENT LOOP --------------------
-Repeat
-  Event = WindowEvent()
-  Window = EventWindow()
+Procedure StartApp()
   
-  If Event = #PB_Event_Timer
-    If Window = notificationWinID
-      CloseWindow(notificationWinID)
-      notificationWinID = 0
-    EndIf
-  EndIf     
+  IsDarkModeActive()
+  SetWindowCallback(@WindowCallback())
   
-  Select Window 
-    Case 0:
-      If Event
-        Select Event
-          Case #PB_Event_SysTray
-            systrayId = EventGadget() 
-            For i = 0 To monitorCount-1
-              If systrayId = trayID(i)
-                ShowLogs(i)
-                Break
-              EndIf 
-            Next
-          Case #PB_Event_Menu
-            menuEvent = EventMenu()
-            If menuEvent>=1000
-              menuContainerIndex = Mod(menuEvent/10,10)
-              menuId = menuEvent-1000-menuContainerIndex*10
-              Select menuId
-                Case 0
-                  HideWindow(0,#False)
-                  SetOverlayIcon(WindowID(0),menuContainerIndex)
-                  
-                Case 1
-                  ShowLogs(menuContainerIndex)
-                Case 2 ; Exit 
-                  For i = 0 To monitorCount-1
-                    If dockerProgramID(i) <> 0 : CloseProgram(dockerProgramID(i)) : dockerProgramID(i) = 0 : EndIf
-                  Next
-                  End
-                  End
-              EndSelect
-            EndIf
-          Case #PB_Event_Gadget
-            
-            currentContainerIndex = GetGadgetState(0)
-            Select EventGadget()
-              Case 0: UpdateButtonStates()
-                If EventType()= #PB_EventType_LeftDoubleClick
-                  
-                  If currentContainerIndex >= 0
-                    If Not containerStarted(currentContainerIndex)
-                      StartDockerFollow(currentContainerIndex)
-                      SetActiveGadget(0)
-                      SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
-                      UpdateButtonStates()
-                    Else
-                      StopDockerFollow(currentContainerIndex) 
-                    EndIf 
-                  EndIf
-                EndIf
-              Case 1: AddMonitorDialog()
-              Case 2
-                If currentContainerIndex >= 0
-                  RemoveMonitor(currentContainerIndex)
-                  UpdateMonitorList()
-                EndIf
-              Case 3
-                If currentContainerIndex >= 0
-                  StartDockerFollow(currentContainerIndex)
-                  SetActiveGadget(0)
-                  SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
-                  UpdateButtonStates()
-                EndIf
-              Case 4
-                If currentContainerIndex >= 0 : StopDockerFollow(currentContainerIndex) : EndIf
-              Case 5
-                If currentContainerIndex >= 0
-                  EditPatternsDialog(currentContainerIndex)
-                  SetActiveGadget(0)
-                  SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
-                  UpdateButtonStates()
-                EndIf
-              Case 6
-                If currentContainerIndex >= 0
-                  EditMonitorDialog(currentContainerIndex)
-                  SetActiveGadget(0)
-                  SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
-                  UpdateButtonStates()
-                EndIf
-            EndSelect
-            
-          Case #PB_Event_CloseWindow
-            
-            If IsRunning()
-              HideWindow(0,#True)
-            Else
-              Break;
-            EndIf
-        EndSelect
+  If OpenWindow(0,0,0,420,300,"Docker Status",#PB_Window_SystemMenu | #PB_Window_SizeGadget | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered | #PB_Window_Invisible)
+    ; Gadgets
+    ListIconGadget(0, 10, 10, 300, 280,"Container",295,#PB_ListIcon_FullRowSelect):ApplySingleColumnListIcon(GadgetID(0))
+    ButtonGadget(1, 325, 10, 80, 24, "Add")
+    ButtonGadget(6, 325, 40, 80, 24, "Edit")
+    ButtonGadget(2, 325, 70, 80, 24, "Remove")
+    ButtonGadget(5, 325, 110, 80, 24, "Log Filter")
+    ButtonGadget(3, 325, 150, 80, 24, "Start")
+    ButtonGadget(4, 325, 180, 80, 24, "Stop")
+    
+    
+    LoadSettings()
+    UpdateMonitorList()
+    
+    ApplyTheme(0)
+    Repeat :Delay(1): Until WindowEvent() = 0
+    ShowWindowFadeIn(0)
+    
+  Else
+    End 
+  EndIf
+  
+  
+  
+  ; -------------------- MAIN EVENT LOOP --------------------
+  Repeat
+    Event = WindowEvent()
+    Window = EventWindow()
+    
+    If Event = #PB_Event_Timer
+      If Window = notificationWinID
+        CloseWindow(notificationWinID)
+        notificationWinID = 0
       EndIf
-    Case 1: ; Add Monitor  
-      closeWindow = #False
-      If Event =  #PB_Event_CloseWindow
-        closeWindow = #True
-      ElseIf Event = #PB_Event_Menu
-        closeWindow = #False
-        Select EventMenu()
-          Case #EventOk
-            CloseAddMonitorDialog(bgCol)
-            Event = #PB_Event_CloseWindow
-        EndSelect
-      ElseIf Event = #PB_Event_Gadget
-        Select EventGadget()
-          Case 10
-            If GetGadgetText(10) = ""
-              DisableGadget(13, #True)
-            Else
-              DisableGadget(13, #False)
-            EndIf
-          Case 12
-            bgCol = ColorRequester(bgCol)
-            SetGadgetColor(14, #PB_Gadget_BackColor, bgCol)
-          Case 13
-            CloseAddMonitorDialog(bgCol)
-            closeWindow = #True
-          Case 15
-            closeWindow = #True
-            
-        EndSelect
-      EndIf
-      If closeWindow
-        CloseWindow(1)
-      EndIf 
-    Case 2:
-      closeWindow = #False
-      If Event =  #PB_Event_CloseWindow
-        closeWindow = #True
-      ElseIf Event = #PB_Event_Gadget
-        closeWindow = #False
-        Select EventGadget()
-          Case 20
-            If GetGadgetText(20) = ""
-              DisableGadget(23,#True)
-            Else
-              DisableGadget(23,#False)
-            EndIf
-          Case 22
-            patCol = ColorRequester(patCol)
-            SetGadgetColor(24,#PB_Gadget_BackColor,patCol)
-          Case 23
-            pattern$ = GetGadgetText(20)
-            If pattern$ <> ""
-              AddPattern(currentContainerIndex, pattern$, patCol)
-              UpdatePatternList(currentContainerIndex)
-              SetActiveWindow(4)
-              SetActiveGadget(40)
-              SetGadgetItemState(40,patternCount(currentContainerIndex)-1,#PB_ListIcon_Selected)
-              closeWindow = #True
-            EndIf
-          Case 25
-            closeWindow = #True
-        EndSelect    
-      EndIf  
-      If closeWindow
-        CloseWindow(2)
-        UpdatePatternButtonStates()
-      EndIf 
-    Case 5: ; Edit Monitor
-      closeWindow = #False
-      If Event =  #PB_Event_CloseWindow
-        closeWindow = #True
-      ElseIf Event = #PB_Event_Gadget
-        closeWindow = #False
-        Select EventGadget()
-          Case 50
-            If GetGadgetText(50) = ""
-              DisableGadget(53, #True)
-            Else
-              DisableGadget(53, #False)
-            EndIf
-          Case 52
-            bgCol = ColorRequester(bgCol)
-            SetGadgetColor(54, #PB_Gadget_BackColor, bgCol)
-          Case 53
-            containerName(currentContainerIndex) = GetGadgetText(50)
-            bgColor(currentContainerIndex) = bgCol
-            UpdateMonitorList()
-            SaveSettings()
-            If containerStarted(currentContainerIndex)
-              If trayID(currentContainerIndex) = 0
-                CreateMonitorIcon(currentContainerIndex, innerColor(currentContainerIndex), bgColor(currentContainerIndex))
-              Else
-                UpdateMonitorIcon(currentContainerIndex, patternColor(currentContainerIndex,lastMatchPattern(currentContainerIndex)))
+    EndIf     
+    
+    Select Window 
+      Case 0:
+        If Event
+          Select Event
+            Case #PB_Event_SysTray
+              systrayId = EventGadget() 
+              For i = 0 To monitorCount-1
+                If systrayId = trayID(i)
+                  ShowLogs(i)
+                  Break
+                EndIf 
+              Next
+            Case #PB_Event_Menu
+              menuEvent = EventMenu()
+              If menuEvent>=1000
+                menuContainerIndex = Mod(menuEvent/10,10)
+                menuId = menuEvent-1000-menuContainerIndex*10
+                Select menuId
+                  Case 0
+                    HideWindow(0,#False)
+                    SetOverlayIcon(WindowID(0),menuContainerIndex)
+                    
+                  Case 1
+                    ShowLogs(menuContainerIndex)
+                  Case 2 ; Exit 
+                    For i = 0 To monitorCount-1
+                      If dockerProgramID(i) <> 0 : CloseProgram(dockerProgramID(i)) : dockerProgramID(i) = 0 : EndIf
+                    Next
+                    End
+                    End
+                EndSelect
               EndIf
-              HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
-            EndIf 
-            closeWindow = #True
-          Case 55
-            closeWindow = #True
-        EndSelect
-      EndIf
-      If closeWindow
-        CloseWindow(5)
-        SetActiveGadget(0)
-        SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
-        UpdateButtonStates()
-      EndIf 
-    Case 3: ;Edit Patterns
-      
-      closeWindow = #False
-      If Event =  #PB_Event_CloseWindow
-        closeWindow = #True
-      ElseIf Event = #PB_Event_Gadget
+            Case #PB_Event_Gadget
+              
+              currentContainerIndex = GetGadgetState(0)
+              Select EventGadget()
+                Case 0: UpdateButtonStates()
+                  If EventType()= #PB_EventType_LeftDoubleClick
+                    
+                    If currentContainerIndex >= 0
+                      If Not containerStarted(currentContainerIndex)
+                        StartDockerFollow(currentContainerIndex)
+                        SetActiveGadget(0)
+                        SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
+                        UpdateButtonStates()
+                      Else
+                        StopDockerFollow(currentContainerIndex) 
+                      EndIf 
+                    EndIf
+                  EndIf
+                Case 1: AddMonitorDialog()
+                Case 2
+                  If currentContainerIndex >= 0
+                    RemoveMonitor(currentContainerIndex)
+                    UpdateMonitorList()
+                  EndIf
+                Case 3
+                  If currentContainerIndex >= 0
+                    StartDockerFollow(currentContainerIndex)
+                    SetActiveGadget(0)
+                    SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
+                    UpdateButtonStates()
+                  EndIf
+                Case 4
+                  If currentContainerIndex >= 0 : StopDockerFollow(currentContainerIndex) : EndIf
+                Case 5
+                  If currentContainerIndex >= 0
+                    EditPatternsDialog(currentContainerIndex)
+                    SetActiveGadget(0)
+                    SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
+                    UpdateButtonStates()
+                  EndIf
+                Case 6
+                  If currentContainerIndex >= 0
+                    EditMonitorDialog(currentContainerIndex)
+                    SetActiveGadget(0)
+                    SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
+                    UpdateButtonStates()
+                  EndIf
+              EndSelect
+              
+            Case #PB_Event_CloseWindow
+              
+              If IsRunning()
+                HideWindow(0,#True)
+              Else
+                Break;
+              EndIf
+          EndSelect
+        EndIf
+      Case 1: ; Add Monitor  
         closeWindow = #False
-        Select EventGadget()
-          Case 30
-            If GetGadgetText(30) = ""
-              DisableGadget(33,#True)
-            Else
-              DisableGadget(33,#False)
-            EndIf
-          Case 32
-            patCol = ColorRequester(patCol)
-            SetGadgetColor(34,#PB_Gadget_BackColor,patCol)
-          Case 33
-            patterns(currentContainerIndex,currentPatternIndex) = GetGadgetText(30)
-            patternColor(currentContainerIndex,currentPatternIndex) = patCol
-            If containerStarted(currentContainerIndex)
-              HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
-            EndIf 
-            SaveSettings()
-            closeWindow = #True
-          Case 35
-            closeWindow = #True
-        EndSelect
-        
-      EndIf
-      If  closeWindow 
-        UpdatePatternList(currentContainerIndex)
-        SetActiveGadget(40)
-        SetGadgetItemState(40,currentPatternIndex,#PB_ListIcon_Selected)
-        CloseWindow(3)
-      EndIf
-    Case 4: ;Patterns
-      closeWindow = #False
-      If Event =  #PB_Event_CloseWindow
-        closeWindow = #True
-      ElseIf Event = #PB_Event_Gadget
+        If Event =  #PB_Event_CloseWindow
+          closeWindow = #True
+        ElseIf Event = #PB_Event_Menu
+          closeWindow = #False
+          Select EventMenu()
+            Case #EventOk
+              CloseAddMonitorDialog(bgCol)
+              Event = #PB_Event_CloseWindow
+          EndSelect
+        ElseIf Event = #PB_Event_Gadget
+          Select EventGadget()
+            Case 10
+              If GetGadgetText(10) = ""
+                DisableGadget(13, #True)
+              Else
+                DisableGadget(13, #False)
+              EndIf
+            Case 12
+              bgCol = ColorRequester(bgCol)
+              SetGadgetColor(14, #PB_Gadget_BackColor, bgCol)
+            Case 13
+              CloseAddMonitorDialog(bgCol)
+              closeWindow = #True
+            Case 15
+              closeWindow = #True
+              
+          EndSelect
+        EndIf
+        If closeWindow
+          CloseWindow(1)
+        EndIf 
+      Case 2:
         closeWindow = #False
+        If Event =  #PB_Event_CloseWindow
+          closeWindow = #True
+        ElseIf Event = #PB_Event_Gadget
+          closeWindow = #False
+          Select EventGadget()
+            Case 20
+              If GetGadgetText(20) = ""
+                DisableGadget(23,#True)
+              Else
+                DisableGadget(23,#False)
+              EndIf
+            Case 22
+              patCol = ColorRequester(patCol)
+              SetGadgetColor(24,#PB_Gadget_BackColor,patCol)
+            Case 23
+              pattern$ = GetGadgetText(20)
+              If pattern$ <> ""
+                AddPattern(currentContainerIndex, pattern$, patCol)
+                UpdatePatternList(currentContainerIndex)
+                SetActiveWindow(4)
+                SetActiveGadget(40)
+                SetGadgetItemState(40,patternCount(currentContainerIndex)-1,#PB_ListIcon_Selected)
+                closeWindow = #True
+              EndIf
+            Case 25
+              closeWindow = #True
+          EndSelect    
+        EndIf  
+        If closeWindow
+          CloseWindow(2)
+          UpdatePatternButtonStates()
+        EndIf 
+      Case 5: ; Edit Monitor
+        closeWindow = #False
+        If Event =  #PB_Event_CloseWindow
+          closeWindow = #True
+        ElseIf Event = #PB_Event_Gadget
+          closeWindow = #False
+          Select EventGadget()
+            Case 50
+              If GetGadgetText(50) = ""
+                DisableGadget(53, #True)
+              Else
+                DisableGadget(53, #False)
+              EndIf
+            Case 52
+              bgCol = ColorRequester(bgCol)
+              SetGadgetColor(54, #PB_Gadget_BackColor, bgCol)
+            Case 53
+              containerName(currentContainerIndex) = GetGadgetText(50)
+              bgColor(currentContainerIndex) = bgCol
+              UpdateMonitorList()
+              SaveSettings()
+              If containerStarted(currentContainerIndex)
+                If trayID(currentContainerIndex) = 0
+                  CreateMonitorIcon(currentContainerIndex, innerColor(currentContainerIndex), bgColor(currentContainerIndex))
+                Else
+                  UpdateMonitorIcon(currentContainerIndex, patternColor(currentContainerIndex,lastMatchPattern(currentContainerIndex)))
+                EndIf
+                HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
+              EndIf 
+              closeWindow = #True
+            Case 55
+              closeWindow = #True
+          EndSelect
+        EndIf
+        If closeWindow
+          CloseWindow(5)
+          SetActiveGadget(0)
+          SetGadgetItemState(0, currentContainerIndex,#PB_ListIcon_Selected)
+          UpdateButtonStates()
+        EndIf 
+      Case 3: ;Edit Patterns
         
-        currentPatternIndex = GetGadgetState(40)
-        
-        Select EventGadget()
-          Case 40:             UpdatePatternButtonStates()
-            If EventType()= #PB_EventType_LeftDoubleClick
+        closeWindow = #False
+        If Event =  #PB_Event_CloseWindow
+          closeWindow = #True
+        ElseIf Event = #PB_Event_Gadget
+          closeWindow = #False
+          Select EventGadget()
+            Case 30
+              If GetGadgetText(30) = ""
+                DisableGadget(33,#True)
+              Else
+                DisableGadget(33,#False)
+              EndIf
+            Case 32
+              patCol = ColorRequester(patCol)
+              SetGadgetColor(34,#PB_Gadget_BackColor,patCol)
+            Case 33
+              patterns(currentContainerIndex,currentPatternIndex) = GetGadgetText(30)
+              patternColor(currentContainerIndex,currentPatternIndex) = patCol
+              If containerStarted(currentContainerIndex)
+                HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
+              EndIf 
+              SaveSettings()
+              closeWindow = #True
+            Case 35
+              closeWindow = #True
+          EndSelect
+          
+        EndIf
+        If  closeWindow 
+          UpdatePatternList(currentContainerIndex)
+          SetActiveGadget(40)
+          SetGadgetItemState(40,currentPatternIndex,#PB_ListIcon_Selected)
+          CloseWindow(3)
+        EndIf
+      Case 4: ;Patterns
+        closeWindow = #False
+        If Event =  #PB_Event_CloseWindow
+          closeWindow = #True
+        ElseIf Event = #PB_Event_Gadget
+          closeWindow = #False
+          
+          currentPatternIndex = GetGadgetState(40)
+          
+          Select EventGadget()
+            Case 40:             UpdatePatternButtonStates()
+              If EventType()= #PB_EventType_LeftDoubleClick
+                If currentPatternIndex >= 0
+                  EditPatternDialog(currentContainerIndex,currentPatternIndex)
+                EndIf
+              EndIf
+            Case 41 ; Add pattern
+              AddPatternDialog(currentContainerIndex)
+              UpdatePatternButtonStates() 
+            Case 42 ; Edit selected
               If currentPatternIndex >= 0
                 EditPatternDialog(currentContainerIndex,currentPatternIndex)
               EndIf
-            EndIf
-          Case 41 ; Add pattern
-            AddPatternDialog(currentContainerIndex)
-            UpdatePatternButtonStates() 
-          Case 42 ; Edit selected
-            If currentPatternIndex >= 0
-              EditPatternDialog(currentContainerIndex,currentPatternIndex)
-            EndIf
-          Case 43 ; Remove selected
-            If currentPatternIndex >= 0
-              For p = currentPatternIndex To patternCount(currentContainerIndex)-2
-                patterns(currentContainerIndex,p) = patterns(currentContainerIndex,p+1)
-                patternColor(currentContainerIndex,p) = patternColor(currentContainerIndex,p+1)
-              Next
-              patternCount(currentContainerIndex) - 1
-            EndIf
-            UpdatePatternList(currentContainerIndex)
-            UpdatePatternButtonStates()
-          Case 44: 
-            closeWindow = #True            
-            
-        EndSelect
-      EndIf
-      If  closeWindow 
-        CloseWindow(4)
-      EndIf
-    Case 6:
-      closeWindow = #False
-      If Event =  #PB_Event_CloseWindow
-        closeWindow = #True
-      ElseIf Event = #PB_Event_Gadget
+            Case 43 ; Remove selected
+              If currentPatternIndex >= 0
+                For p = currentPatternIndex To patternCount(currentContainerIndex)-2
+                  patterns(currentContainerIndex,p) = patterns(currentContainerIndex,p+1)
+                  patternColor(currentContainerIndex,p) = patternColor(currentContainerIndex,p+1)
+                Next
+                patternCount(currentContainerIndex) - 1
+              EndIf
+              UpdatePatternList(currentContainerIndex)
+              UpdatePatternButtonStates()
+            Case 44: 
+              closeWindow = #True            
+              
+          EndSelect
+        EndIf
+        If  closeWindow 
+          CloseWindow(4)
+        EndIf
+      Case 6:
         closeWindow = #False
-        Select EventGadget()
-          Case 60: bgColor(currentContainerIndex) = ColorRequester(bgColor(currentContainerIndex)) : SaveSettings()
-          Case 61: neutralInnerColor(currentContainerIndex) = ColorRequester(neutralInnerColor(currentContainerIndex)) : SaveSettings()
-          Case 62: innerColor(currentContainerIndex) = ColorRequester(innerColor(currentContainerIndex)) : SaveSettings()
-          Case 63: CreateMonitorIcon(currentContainerIndex, innerColor(currentContainerIndex), bgColor(currentContainerIndex))
-          Case 64: closeWindow = #True
-        EndSelect
-      EndIf
-      If  closeWindow 
-        CloseWindow(6)
-      EndIf
-    Default:  
-      
-      If Event =  #PB_Event_ActivateWindow  
+        If Event =  #PB_Event_CloseWindow
+          closeWindow = #True
+        ElseIf Event = #PB_Event_Gadget
+          closeWindow = #False
+          Select EventGadget()
+            Case 60: bgColor(currentContainerIndex) = ColorRequester(bgColor(currentContainerIndex)) : SaveSettings()
+            Case 61: neutralInnerColor(currentContainerIndex) = ColorRequester(neutralInnerColor(currentContainerIndex)) : SaveSettings()
+            Case 62: innerColor(currentContainerIndex) = ColorRequester(innerColor(currentContainerIndex)) : SaveSettings()
+            Case 63: CreateMonitorIcon(currentContainerIndex, innerColor(currentContainerIndex), bgColor(currentContainerIndex))
+            Case 64: closeWindow = #True
+          EndSelect
+        EndIf
+        If  closeWindow 
+          CloseWindow(6)
+        EndIf
+      Default:  
         
-        ForEach logWindows()
-          If logWindows()\winID = Window
-            SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
-            Break;
-          EndIf
-        Next
+        If Event =  #PB_Event_ActivateWindow  
+          
+          ForEach logWindows()
+            If logWindows()\winID = Window
+              SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
+              Break;
+            EndIf
+          Next
+          
+          
+          
+        ElseIf Event =  #PB_Event_SizeWindow Or Event =  #PB_Event_MoveWindow
+          ForEach logWindows()
+            If logWindows()\winID = Window
+              SaveSettings()
+              Break
+            EndIf
+          Next
+        EndIf
         
-        
-        
-      ElseIf Event =  #PB_Event_SizeWindow Or Event =  #PB_Event_MoveWindow
-        ForEach logWindows()
-          If logWindows()\winID = Window
-            SaveSettings()
-            Break
-          EndIf
-        Next
-      EndIf
-      
-  EndSelect
+    EndSelect
+    
+    
+    For i = 0 To monitorCount-1
+      CheckDockerOutput(i)
+    Next
+    ;RedrawTimeoutIcons() reset after timeout
+    Delay(#UPDATE_INTERVAL)
+  Until 0
+  CloseWindow(0)
   
   
-  For i = 0 To monitorCount-1
-    CheckDockerOutput(i)
-  Next
-  ;RedrawTimeoutIcons() reset after timeout
-  Delay(#UPDATE_INTERVAL)
-Until 0
-CloseWindow(0)
-
-CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-  ;Free Windows Icons
-  ForEach logWindows()
-    If containterMetaData(index)\overlayIconHandle
-      DestroyIcon_(containterMetaData(index)\overlayIconHandle)
-    EndIf 
-  Next
-  For i = 0 To monitorCount-1
-    If infoImageId(i)
-      DestroyIcon_(infoImageId(i))
-    EndIf
-  Next
-CompilerEndIf
+  
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    ;Free Windows Icons
+    ForEach logWindows()
+      If containterMetaData(index)\overlayIconHandle
+        DestroyIcon_(containterMetaData(index)\overlayIconHandle)
+      EndIf 
+    Next
+    For i = 0 To monitorCount-1
+      If infoImageId(i)
+        DestroyIcon_(infoImageId(i))
+      EndIf
+    Next
+  CompilerEndIf
+  
+EndProcedure
 
 
 
+StartApp()
 
 
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1515
-; FirstLine = 1490
-; Folding = ---------
+; CursorPosition = 2204
+; FirstLine = 2201
+; Folding = f-------------
 ; Optimizer
 ; EnableThread
 ; EnableXP

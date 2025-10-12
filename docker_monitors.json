@@ -1,11 +1,11 @@
 [
   {
     "Started"     : 1,
-    "LogH"        : 218,
+    "LogH"        : 381,
     "Name"        : "aos2-frontend",
-    "LogW"        : 494,
-    "LogX"        : 1047,
-    "LogY"        : 566,
+    "LogW"        : 592,
+    "LogX"        : 917,
+    "LogY"        : 258,
     "NeutralColor": 0,
     "Patterns"    : [
         {
@@ -43,6 +43,18 @@
     "LogW"        : 457,
     "LogX"        : 634,
     "LogY"        : 289,
+    "NeutralColor": 0,
+    "Patterns"    : [],
+    "InnerColor"  : 16777215,
+    "BGColor"     : 13158600
+  },
+  {
+    "Started"     : 0,
+    "LogH"        : 0,
+    "Name"        : "djhglkdglkdgkhslkdgdglsjdlgkhlkdfgkjd fjs gkskgds khskjhgksdhkshdkjghsklgfkdsjkdkg",
+    "LogW"        : 0,
+    "LogX"        : 0,
+    "LogY"        : 0,
     "NeutralColor": 0,
     "Patterns"    : [],
     "InnerColor"  : 16777215,
