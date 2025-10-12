@@ -1771,11 +1771,13 @@ Procedure StopDockerFollow(index)
   ForEach logWindows()
     If logWindows()\containerIndex = index
       RemoveOverlayIcon(WindowID(logWindows()\winID))
+       CloseWindow(logWindows()\winID)
+      DeleteElement(logWindows())
       Break
     EndIf
   Next
-  
-  
+ 
+
   If trayID(index) <> 0
     RemoveSysTrayIcon(trayID(index))
     trayID(index) = 0
@@ -2586,8 +2588,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2204
-; FirstLine = 2201
+; CursorPosition = 1779
+; FirstLine = 1756
 ; Folding = f-------------
 ; Optimizer
 ; EnableThread
