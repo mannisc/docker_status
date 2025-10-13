@@ -2486,7 +2486,7 @@ Procedure StartDockerFollow(index)
     Delay(1)
   Until dataRead = #False And #False
   
-  dockerCommand$ = "/k " + Chr(34) + dockerExecutable$  +Chr(34) +" logs --follow --tail 1000 " + container$ 
+  dockerCommand$ = "/c " + Chr(34) + dockerExecutable$  +Chr(34) +" logs --follow --tail 1000 " + container$ 
   dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read| #PB_Program_Hide );
   
   If trayID(index) = 0
@@ -3479,8 +3479,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2993
-; FirstLine = 2969
+; CursorPosition = 2480
+; FirstLine = 2463
 ; Folding = ----------------
 ; Optimizer
 ; EnableThread
