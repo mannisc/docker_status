@@ -2991,7 +2991,6 @@ Procedure ShowLogs(index)
   
   ForEach containerOutput(index)\lines()
     text$ =  text$+Chr(10)+containerOutput(index)\lines()
-    HandleInputLine(index, containerOutput(index)\lines(),#False)
   Next
   
 
@@ -3480,8 +3479,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1618
-; FirstLine = 1593
+; CursorPosition = 2993
+; FirstLine = 2969
 ; Folding = ----------------
 ; Optimizer
 ; EnableThread
