@@ -930,7 +930,7 @@ CompilerEndIf
 
 
 ; -------------------- JSON FILE --------------------
-Global settingsFile.s = "docker_monitors.json"
+Global settingsFile.s = "docker_status.json"
 
 
 ; -------------------- SAVE/LOAD PROCEDURES --------------------
@@ -2701,8 +2701,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 597
-; FirstLine = 565
+; CursorPosition = 932
+; FirstLine = 928
 ; Folding = --------------
 ; Optimizer
 ; EnableThread
