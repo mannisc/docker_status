@@ -75,34 +75,34 @@ Enumeration KeyboardEvents
 EndEnumeration
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-PrototypeC SetProcAppID(AppID.p-unicode) ; wide string (LPWSTR)
-
-Global SetCurrentProcessExplicitAppUserModelID.SetProcAppID
-
-; Load function from shell32.dll
-If OpenLibrary(0, "shell32.dll")
-  SetCurrentProcessExplicitAppUserModelID = GetFunction(0, "SetCurrentProcessExplicitAppUserModelID")
-  CloseLibrary(0)
-EndIf
-
-Procedure SetProcessAppId(appId.s)
-  Debug  "???"
-  Debug SetCurrentProcessExplicitAppUserModelID
-  If SetCurrentProcessExplicitAppUserModelID
-    Protected result = SetCurrentProcessExplicitAppUserModelID(appId)
-    If result = 0 ; S_OK
-      Debug "AppUserModelID set to: " + appId
-    Else
-      Debug "SetCurrentProcessExplicitAppUserModelID failed: " + Str(result)
-    EndIf
-  Else
-    Debug "Function not found in shell32.dll"
+  PrototypeC SetProcAppID(AppID.p-unicode) ; wide string (LPWSTR)
+  
+  Global SetCurrentProcessExplicitAppUserModelID.SetProcAppID
+  
+  ; Load function from shell32.dll
+  If OpenLibrary(0, "shell32.dll")
+    SetCurrentProcessExplicitAppUserModelID = GetFunction(0, "SetCurrentProcessExplicitAppUserModelID")
+    CloseLibrary(0)
   EndIf
-EndProcedure
-
-
-; --- Example usage (call at program start, before opening windows) ---
-;SetProcessAppId("com.mycompany.myapp.uniqueid")
+  
+  Procedure SetProcessAppId(appId.s)
+    Debug  "???"
+    Debug SetCurrentProcessExplicitAppUserModelID
+    If SetCurrentProcessExplicitAppUserModelID
+      Protected result = SetCurrentProcessExplicitAppUserModelID(appId)
+      If result = 0 ; S_OK
+        Debug "AppUserModelID set to: " + appId
+      Else
+        Debug "SetCurrentProcessExplicitAppUserModelID failed: " + Str(result)
+      EndIf
+    Else
+      Debug "Function not found in shell32.dll"
+    EndIf
+  EndProcedure
+  
+  
+  ; --- Example usage (call at program start, before opening windows) ---
+  ;SetProcessAppId("com.mycompany.myapp.uniqueid")
 CompilerEndIf 
 
 
@@ -446,53 +446,159 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ProcedureReturn CallWindowProc_(oldProc, hwnd, msg, wParam, lParam)
   EndProcedure
   
+  ; Define constants globally
+#WS_EX_SIZEGRIP   = $00000100
+#SWP_FRAMECHANGED = $0020            ; Forces non-client area redraw
+#WM_USER_FORCE_REDRAW = #WM_USER + 100 ; Custom message for delayed action
+
+; --------------------------------------------------------------------------
+; Window Callback Procedure (Subclassing)
+; --------------------------------------------------------------------------
+; Note: ProcedureC ensures correct calling convention for a window callback
+ProcedureC EditGadgetWindowCallback(hWnd, uMsg, wParam, lParam)
+  Protected result
+  Protected style, exStyle
+  Protected OrigWndProc = GetProp_(hWnd, "OrigWndProc")
+  
+  ; 📢 1. Handle the custom message for delayed enforcement
+  If uMsg = #WM_USER_FORCE_REDRAW
+    
+    ; Re-enforce the style removal
+    style = GetWindowLong_(hWnd, #GWL_STYLE)
+    exStyle = GetWindowLong_(hWnd, #GWL_EXSTYLE)
+    
+    style = style & ~#WS_HSCROLL & ~#WS_SIZEBOX
+    exStyle = exStyle & ~#WS_EX_SIZEGRIP
+    
+    SetWindowLong_(hWnd, #GWL_STYLE, style)
+    SetWindowLong_(hWnd, #GWL_EXSTYLE, exStyle)
+    
+    ; Force the frame change now
+    SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+    
+    ; Redraw everything one last time
+    RedrawWindow_(hWnd, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+    
+    ProcedureReturn 0 ; Handled
+  EndIf
+  
+  ; 2. Block the resize grip detection in the hit test
+  If uMsg = #WM_NCHITTEST
+    result = CallWindowProc_(OrigWndProc, hWnd, uMsg, wParam, lParam)
+    
+    ; If Windows detected the resize grip area, change the result to #HTCLIENT
+    If result = #HTBOTTOMRIGHT Or result = #HTSIZE Or result = #HTGROWBOX Or result = #HTBORDER
+      ProcedureReturn #HTCLIENT
+    EndIf
+    ProcedureReturn result
+  EndIf
+  
+  ; 3. When window is shown, force a repaint
+  If uMsg = #WM_SHOWWINDOW And wParam <> 0
+    result = CallWindowProc_(OrigWndProc, hWnd, uMsg, wParam, lParam)
+    
+    ; Force a complete redraw after the original procedure handles the show event
+    InvalidateRect_(hWnd, #Null, #True)
+    UpdateWindow_(hWnd)
+    
+    ProcedureReturn result
+  EndIf
+  
+  ; 4. Re-enforce style removal on size/position changes
+  If uMsg = #WM_WINDOWPOSCHANGED Or uMsg = #WM_SIZE
+    
+    style = GetWindowLong_(hWnd, #GWL_STYLE)
+    exStyle = GetWindowLong_(hWnd, #GWL_EXSTYLE)
+    
+    If (style & #WS_SIZEBOX) Or (exStyle & #WS_EX_SIZEGRIP) Or (style & #WS_HSCROLL)
+      style = style & ~#WS_HSCROLL & ~#WS_SIZEBOX
+      SetWindowLong_(hWnd, #GWL_STYLE, style)
+      
+      exStyle = exStyle & ~#WS_EX_SIZEGRIP
+      SetWindowLong_(hWnd, #GWL_EXSTYLE, exStyle)
+      
+      ; Force the frame to update after changing the style
+      SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+    EndIf
+    
+    ; Re-enable word wrap
+    SendMessage_(hWnd, #EM_SETTARGETDEVICE, 0, 0)
+  EndIf
+  
+  ; Call original window procedure for all other messages
+  ProcedureReturn CallWindowProc_(OrigWndProc, hWnd, uMsg, wParam, lParam)
+EndProcedure
+
+; --------------------------------------------------------------------------
+; Theme Application Procedure
+; --------------------------------------------------------------------------
 Procedure ApplyEditorGadgetTheme(gadgetHandle)
   Protected style, exStyle
-      Protected charFormat.CHARFORMAT2
-
+  Protected charFormat.CHARFORMAT2
+  Protected oldProc
+  
+  ; Apply Dark Mode attributes
   DwmSetWindowAttributeDynamic(gadgetHandle, #DWMWA_USE_IMMERSIVE_DARK_MODE, @IsDarkModeActiveCached, SizeOf(Integer))
-   ; Set left and right margins (in pixels)
-    ; LOWORD = left margin, HIWORD = right margin
-    Protected leftMargin = 10  ; 10 pixels
-    Protected rightMargin = 10 ; 10 pixels
-    SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
-    
+  
+  ; Set left and right margins (in pixels)
+  Protected leftMargin = 10
+  Protected rightMargin = 10
+  SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
+  
+  ; Get current styles
+  style = GetWindowLong_(gadgetHandle, #GWL_STYLE)
+  exStyle = GetWindowLong_(gadgetHandle, #GWL_EXSTYLE)
+  
+  ; Remove styles
+  style = style & ~#WS_HSCROLL & ~#WS_SIZEBOX
+  SetWindowLong_(gadgetHandle, #GWL_STYLE, style)
+  
+  exStyle = exStyle & ~#WS_EX_SIZEGRIP
+  SetWindowLong_(gadgetHandle, #GWL_EXSTYLE, exStyle)
+
+  ; Subclass the window to block resize grip detection (only once)
+  If GetProp_(gadgetHandle, "OrigWndProc") = 0
+    oldProc = SetWindowLongPtr_(gadgetHandle, #GWLP_WNDPROC, @EditGadgetWindowCallback())
+    SetProp_(gadgetHandle, "OrigWndProc", oldProc)
+  EndIf
+  
+  ; Enable word wrap
+  SendMessage_(gadgetHandle, #EM_SETTARGETDEVICE, 0, 0)
+  
+  ; --- Themeing/Redraw ---
   If IsDarkModeActiveCached
-    ; Set black background
     SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(0, 0, 0))
     
-    ; Set white text color for the entire content
     charFormat\cbSize = SizeOf(CHARFORMAT2)
     charFormat\dwMask = #CFM_COLOR
     charFormat\crTextColor = RGB(255, 255, 255)
     SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, @charFormat)
     
     SetWindowThemeDynamic(gadgetHandle, "DarkMode_Explorer")
-    
-    ; Force complete redraw including non-client area
-    RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
-    
   Else
-    ; Set white background
     SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255))
     
-    ; Set black text color
     charFormat\cbSize = SizeOf(CHARFORMAT2)
     charFormat\dwMask = #CFM_COLOR
     charFormat\crTextColor = RGB(0, 0, 0)
     SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, @charFormat)
     
     SetWindowThemeDynamic(gadgetHandle, "Explorer")
-    
-    RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
   EndIf
   
+  ; 📢 FIX: Post a custom message to force the frame change *after* the control
+  ; has finished processing the initial load and theme changes.
+  PostMessage_(gadgetHandle, #WM_USER_FORCE_REDRAW, 0, 0)
+  
+  ; Final aggressive repaints
+  #RDW_ERASE = $0004
+  RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_ERASE)
   InvalidateRect_(gadgetHandle, #Null, #True)
   UpdateWindow_(gadgetHandle)
 EndProcedure
 
-Procedure ApplyThemeToWindowChildren(hWnd, lParam)
-  
+  Procedure ApplyThemeToWindowChildren(hWnd, lParam)
+    
     Protected className.s = Space(256)
     Protected length = GetClassName_(hWnd, @className, 256)
     
@@ -505,12 +611,11 @@ Procedure ApplyThemeToWindowChildren(hWnd, lParam)
           ApplyGadgetTheme(hWnd)
         Case "static"
           Protected textLength = GetWindowTextLength_(hWnd)
-  
-  If textLength = 0
-    ; No text = likely an ImageGadget - skip theming
-    Debug "IMAGE (no text) ############"
-    ProcedureReturn #True
-  EndIf
+          
+          If textLength = 0
+            ; No text = likely an ImageGadget - skip theming
+            ProcedureReturn #True
+          EndIf
           ; Subclass the static control to handle its own painting
           CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
             Protected oldProc = SetWindowLongPtr_(hWnd, #GWLP_WNDPROC, @StaticControlDarkThemeProc())
@@ -524,10 +629,10 @@ Procedure ApplyThemeToWindowChildren(hWnd, lParam)
           ; This is ListIconGadget
           ApplyDarkListIconTheme(hWnd)
           
-         
+          
         Case "edit"
           ; StringGadget, EditorGadget
-          ApplyGadgetTheme(hWnd)
+          ;ApplyGadgetTheme(hWnd)
           
         Case "combobox"
           ; ComboBoxGadget
@@ -537,7 +642,7 @@ Procedure ApplyThemeToWindowChildren(hWnd, lParam)
           ; ListBoxGadget (not ListIconGadget!)
           ApplyGadgetTheme(hWnd)
           
-
+          
           
         Case "systreeview32"
           ; TreeGadget
@@ -994,9 +1099,9 @@ Procedure ShowSystrayNotification(index)
   If winID
     StickyWindow(winID,#True)
     textGadget = TextGadget(#PB_Any, 30, 5, #Notification_Width-20, 20, "Docker Status is running",#PB_Text_Center )
-
+    
     ImageGadget(#PB_Any,14, 0,26,26,ImageID(infoImageRunningID(index)),  #PB_Image_Raised)
-   
+    
     If notificationWinID <>0
       CloseWindow(notificationWinID)
       notificationWinID = 0
@@ -1393,12 +1498,12 @@ Procedure SetListItemStarted(index,started)
       VectorSourceColor(RGBA(255, 255, 255, 255))
       StrokePath(4)
       
-          infoImageRunningID(index) = img
-
+      infoImageRunningID(index) = img
+      
     EndIf
     StopVectorDrawing()
     SetGadgetItemImage(0, index, ImageID(  img))
-     
+    
   EndIf
 EndProcedure
 
@@ -1771,13 +1876,13 @@ Procedure StopDockerFollow(index)
   ForEach logWindows()
     If logWindows()\containerIndex = index
       RemoveOverlayIcon(WindowID(logWindows()\winID))
-       CloseWindow(logWindows()\winID)
+      CloseWindow(logWindows()\winID)
       DeleteElement(logWindows())
       Break
     EndIf
   Next
- 
-
+  
+  
   If trayID(index) <> 0
     RemoveSysTrayIcon(trayID(index))
     trayID(index) = 0
@@ -1828,6 +1933,14 @@ Procedure UpdateMonitorIcon(index, matchColor)
     output$ = info$
   EndIf 
   SysTrayIconToolTip(trayID(index),output$ )
+  
+  ForEach logWindows()
+    If logWindows()\containerIndex = index
+      SetWindowTitle(logWindows()\winID,containerName(index)+" - "+lastMatch(index))
+      Break
+    EndIf
+  Next
+  
   
   SetOverlayIcon(WindowID(0),index)
 EndProcedure
@@ -2059,9 +2172,9 @@ Procedure ResizeLogWindow()
       CurrentH =WindowHeight(EventWindow())
       If CurrentW >= 0 And CurrentH >= 0
         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-         ResizeGadget(logWindows()\editorGadgetID, -2, -2, CurrentW+4, CurrentH+4) ;dark mode no border
+          ResizeGadget(logWindows()\editorGadgetID, -2, -2, CurrentW+4, CurrentH+4) ;dark mode no border
         CompilerElse
-         ResizeGadget(logWindows()\editorGadgetID, 0, 0, CurrentW, CurrentH)
+          ResizeGadget(logWindows()\editorGadgetID, 0, 0, CurrentW, CurrentH)
         CompilerEndIf 
         containterMetaData(logWindows()\containerIndex)\logWindowW = CurrentW
         containterMetaData(logWindows()\containerIndex)\logWindowH = CurrentH
@@ -2588,9 +2701,9 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1779
-; FirstLine = 1756
-; Folding = f-------------
+; CursorPosition = 597
+; FirstLine = 565
+; Folding = --------------
 ; Optimizer
 ; EnableThread
 ; EnableXP

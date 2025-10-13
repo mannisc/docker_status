@@ -1,11 +1,11 @@
 [
   {
     "Started"     : 1,
-    "LogH"        : 381,
+    "LogH"        : 222,
     "Name"        : "aos2-frontend",
-    "LogW"        : 592,
-    "LogX"        : 797,
-    "LogY"        : 182,
+    "LogW"        : 534,
+    "LogX"        : 986,
+    "LogY"        : 557,
     "NeutralColor": 0,
     "Patterns"    : [
         {
@@ -19,6 +19,10 @@
         {
           "Color"  : 255,
           "Pattern": "ERROR"
+        },
+        {
+          "Color"  : 4227327,
+          "Pattern": "Building"
         }
       ],
     "InnerColor"  : 16777215,
@@ -35,29 +39,5 @@
     "Patterns"    : [],
     "InnerColor"  : 16777215,
     "BGColor"     : 16711808
-  },
-  {
-    "Started"     : 0,
-    "LogH"        : 194,
-    "Name"        : "test",
-    "LogW"        : 457,
-    "LogX"        : 634,
-    "LogY"        : 289,
-    "NeutralColor": 0,
-    "Patterns"    : [],
-    "InnerColor"  : 16777215,
-    "BGColor"     : 13158600
-  },
-  {
-    "Started"     : 0,
-    "LogH"        : 0,
-    "Name"        : "djhglkdglkdgkhslkdgdglsjdlgkhlkdfgkjd fjs gkskgds khskjhgksdhkshdkjghsklgfkdsjkdkg",
-    "LogW"        : 0,
-    "LogX"        : 0,
-    "LogY"        : 0,
-    "NeutralColor": 0,
-    "Patterns"    : [],
-    "InnerColor"  : 16777215,
-    "BGColor"     : 13158600
   }
 ]
