@@ -1580,7 +1580,7 @@ Global notificationTextGadgetID = 0
 Global notificationImageGadgetID = 0
 #Notification_Large_Width = 270
 #Notification_TimerID = 2 ; A unique ID for the timer
-
+#Notification_Long_Duration = 5000
 
 Procedure ShowSystrayNotification(index, text.s)
   
@@ -1597,7 +1597,7 @@ Procedure ShowSystrayNotification(index, text.s)
   If notificationWinID <>0
     SetGadgetText(notificationTextGadgetID,text)
     SetGadgetState(notificationImageGadgetID,ImageID(infoImageRunningID(index)))
-    AddWindowTimer(notificationWinID, #Notification_TimerID, #Notification_Duration)
+    AddWindowTimer(notificationWinID, #Notification_TimerID, #Notification_Long_Duration)
     
   Else
     
@@ -1616,7 +1616,7 @@ Procedure ShowSystrayNotification(index, text.s)
       
       
       notificationWinID = winID
-      AddWindowTimer(winID, #Notification_TimerID, #Notification_Duration)
+      AddWindowTimer(winID, #Notification_TimerID, #Notification_Long_Duration)
       
       ApplyTheme(winID)
       Repeat :Delay(1): Until WindowEvent() = 0
@@ -3480,8 +3480,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1487
-; FirstLine = 1480
+; CursorPosition = 1618
+; FirstLine = 1593
 ; Folding = ----------------
 ; Optimizer
 ; EnableThread
