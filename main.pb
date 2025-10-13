@@ -2,7 +2,7 @@
 #APP_TITLE = "Docker Status"
 #MAX_CONTAINERS = 1000
 #MAX_PATTERNS   = 1000
-#MAX_LINES   = 5000
+#MAX_LINES   = 500
 #ICON_SIZE      =64
 #ICON_OVERLAY_SIZE      = 128
 
@@ -44,7 +44,7 @@ Global Dim patterns.s(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim patternColor.l(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim patternsNotification.b(#MAX_CONTAINERS-1, #MAX_PATTERNS-1)
 Global Dim containerStartedTime.l(#MAX_CONTAINERS-1)
-
+Global Dim containerLogEditorID(#MAX_CONTAINERS-1)
 
 Structure LogWindow
   winID.i
@@ -84,38 +84,22 @@ Enumeration KeyboardEvents
   #EventOk
 EndEnumeration
 
-CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-  PrototypeC SetProcAppID(AppID.p-unicode) ; wide string (LPWSTR)
-  
-  Global SetCurrentProcessExplicitAppUserModelID.SetProcAppID
-  
-  ; Load function from shell32.dll
-  If OpenLibrary(0, "shell32.dll")
-    SetCurrentProcessExplicitAppUserModelID = GetFunction(0, "SetCurrentProcessExplicitAppUserModelID")
-    CloseLibrary(0)
+ 
+Procedure.i MinI(a.i, b.i)
+  If a < b
+    ProcedureReturn a
+  Else
+    ProcedureReturn b
   EndIf
-  
-  Procedure SetProcessAppId(appId.s)
-    Debug  "???"
-    Debug SetCurrentProcessExplicitAppUserModelID
-    If SetCurrentProcessExplicitAppUserModelID
-      Protected result = SetCurrentProcessExplicitAppUserModelID(appId)
-      If result = 0 ; S_OK
-        Debug "AppUserModelID set to: " + appId
-      Else
-        Debug "SetCurrentProcessExplicitAppUserModelID failed: " + Str(result)
-      EndIf
-    Else
-      Debug "Function not found in shell32.dll"
-    EndIf
-  EndProcedure
-  
-  
-  ; --- Example usage (call at program start, before opening windows) ---
-  ;SetProcessAppId("com.mycompany.myapp.uniqueid")
-CompilerEndIf 
+EndProcedure
 
-
+Procedure.i MaxI(a.i, b.i)
+  If a > b
+    ProcedureReturn a
+  Else
+    ProcedureReturn b
+  EndIf
+EndProcedure
 
 ; Dark Theme -----------------------------------------------------------------------
 
@@ -399,7 +383,6 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected result
     Select msg
       Case #WM_SETTEXT
-        Debug "Settext"
         ; Let Windows actually set the text first
         result = CallWindowProc_(oldProc, hwnd, msg, wParam, lParam)
         ; Now trigger repaint AFTER text changed
@@ -426,7 +409,6 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         
         ; Get text
         Protected textLen = GetWindowTextLength_(hwnd)
-        Debug "DRAW?"
         
         If textLen > 0
           Protected *text = AllocateMemory((textLen + 1) * SizeOf(Character))
@@ -441,8 +423,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
           ElseIf style & #SS_RIGHT
             format | #DT_RIGHT
           EndIf
-          Debug "DRAW"
-          Debug PeekS(*text)
+
           ; Draw clipped text with ellipsis
           DrawText_(hdc, *text, -1, @rect, format)
           
@@ -549,70 +530,400 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   ; --------------------------------------------------------------------------
   ; Theme Application Procedure
   ; --------------------------------------------------------------------------
+  
+  
+  
+  Global editorID
+  ; Constants for RichEdit
+#EM_SETCHARFORMAT = $0444
+
+#EM_GETSEL = $00B0
+#EM_SETPROTECTED = $04C9
+#SCF_SELECTION = 1
+#CFM_COLOR = $40000000
+#ES_READONLY = $0800
+#WM_SETREDRAW = $000B
+#WM_PAINT = $000F
+
+; CHARFORMATA structure (ANSI, for fallback)
+Structure CHARFORMAT_Minimal
+  cbSize.l
+  dwMask.l
+  dwEffects.l
+  yHeight.l
+  yOffset.l
+  crTextColor.l
+  bCharSet.b
+  bPitchAndFamily.b
+  szFaceName.a[32]
+EndStructure
+
+
+Structure FINDTEXTEXW
+  chrg.CHARRANGE
+  lpstrText.s
+  chrgText.CHARRANGE
+EndStructure
+
+#TO_ADVANCEDTYPOGRAPHY = $0001 ; Enable advanced typography
+#EM_SETTYPOGRAPHYOPTIONS = #WM_USER + 202
+#EM_SETBACKGROUND = #WM_USER + 43 ; Rich Edit background color message
+
+
+
+; Calculate luminance for contrast ratio
+Procedure.f CalculateLuminance(color.l)
+  Protected r.f = Red(color) / 255.0
+  Protected g.f = Green(color) / 255.0
+  Protected b.f = Blue(color) / 255.0
+  ProcedureReturn 0.299 * r + 0.587 * g + 0.114 * b
+EndProcedure
+
+; Calculate contrast ratio between two colors
+Procedure.f CalculateContrastRatio(color1.l, color2.l)
+  Protected l1.f = CalculateLuminance(color1)
+  Protected l2.f = CalculateLuminance(color2)
+  If l1 < l2
+    Swap l1, l2
+  EndIf
+  ProcedureReturn (l1 + 0.05) / (l2 + 0.05)
+EndProcedure
+
+; Adjust foreground color to ensure visibility
+Procedure.l AdjustForegroundColor(fg.l, bg.l)
+  Protected contrast.f = CalculateContrastRatio(fg, bg)
+  Protected minContrast.f = 4.5 ; WCAG AA threshold
+  Protected r.l = Red(fg)
+  Protected g.l = Green(fg)
+  Protected b.l = Blue(fg)
+  
+  
+  If contrast < minContrast
+    If CalculateLuminance(bg) < 0.5 ; Dark background
+      ; Lighten foreground
+      r = MinI(r + 50, 255)
+      g = MinI(g + 50, 255)
+      b = MinI(b + 50, 255)
+    Else ; Light background
+      ; Darken foreground
+      r = MaxI(r - 50, 0)
+      g = MaxI(g - 50, 0)
+      b = MaxI(b - 50, 0)
+    EndIf
+    Protected newFg.l = RGB(r, g, b)
+    ProcedureReturn newFg
+  EndIf
+  ProcedureReturn fg
+EndProcedure
+
+Procedure ApplyColorToSelection(hEditor, fg.l)
+  Protected Result.l
+  Protected start.l, endx.l
+  Protected bg.l
+  
+  ; Set background color based on dark mode
+  If IsDarkModeActiveCached
+    bg = RGB(30, 30, 30) ; Dark mode background
+  Else
+    bg = RGB(255, 255, 255) ; Light mode background
+  EndIf
+  
+  ; Adjust foreground color for visibility
+  fg = AdjustForegroundColor(fg, bg)
+  
+  SendMessage_(hEditor, #EM_GETSEL, @start, @endx)
+  
+  Protected *buffer = AllocateMemory(60)
+  If *buffer
+    PokeL(*buffer + 0, 60) ; cbSize
+    PokeL(*buffer + 4, #CFM_COLOR) ; dwMask
+    PokeL(*buffer + 8, 0) ; dwEffects
+    PokeL(*buffer + 20, fg) ; crTextColor
+    
+
+    
+    SendMessage_(hEditor, #EM_SETPROTECTED, 0, 0)
+    
+    Result = SendMessage_(hEditor, #EM_SETCHARFORMAT, #SCF_SELECTION, *buffer)
+    
+    FreeMemory(*buffer)
+  Else
+    ProcedureReturn 0
+  EndIf
+  
+  ProcedureReturn Result
+EndProcedure
+
+
+Procedure.s GetEditorGadgetText(hEditor)
+    Protected gte.GETTEXTEX
+  text.s = ""
+ Protected textLen.l = SendMessage_(hEditor, #WM_GETTEXTLENGTH, 0, 0) + 1
+  Protected *textBuffer = AllocateMemory(textLen * SizeOf(Character))
+  If *textBuffer
+    gte\cb = textLen * SizeOf(Character)
+    gte\flags = #GT_DEFAULT
+    gte\codepage = 1200 ; CP_UNICODE
+    SendMessage_(hEditor, #EM_GETTEXTEX, @gte, *textBuffer)
+    text.s = PeekS(*textBuffer, -1, #PB_Unicode)
+    FreeMemory(*textBuffer)
+ 
+  EndIf
+ 
+  ProcedureReturn text
+EndProcedure
+
+Procedure SetEditorTextColor(index, newLinesCount.l = 0)
+  If containerLogEditorID(index) = 0 Or Not IsGadget(containerLogEditorID(index))
+    ProcedureReturn
+  EndIf
+
+  If newLinesCount = 0
+    HideGadget(containerLogEditorID(index), #True)
+  EndIf
+
+  Protected hEditor = GadgetID(containerLogEditorID(index))
+  ; Get scroll position
+  Protected scrollPos.POINT
+  SendMessage_(hEditor, #EM_GETSCROLLPOS, 0, @scrollPos)
+  Protected Result.l
+  Protected start.l, endx.l
+  Protected text.s, pos.l, len.l, p.l
+  Protected fg.l
+  Protected foundStringMatch.l
+  Protected pattern.s
+  Protected fte.FINDTEXTEXW
+  Protected searchText.s, startPos.l
+
+  ; Store current selection to restore later
+  SendMessage_(hEditor, #EM_GETSEL, @start, @endx)
+
+  text = GetEditorGadgetText(hEditor)
+  If text = ""
+    ProcedureReturn 0
+  EndIf
+
+  Debug ""
+  ; Determine search text and starting position
+  If newLinesCount > 0
+    ; Find the start of the last newLinesCount lines
+    Protected lineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
+    Protected targetLine.l = lineCount - newLinesCount
+    If targetLine < 0 : targetLine = 0 : EndIf ; Ensure not negative
+    startPos = SendMessage_(hEditor, #EM_LINEINDEX, targetLine, 0)
+    If startPos = -1 : startPos = 0 : EndIf ; Fallback if invalid
+    searchText = Mid(text, startPos + 1)
+    Debug "SetTextColor: Formatting last " + Str(newLinesCount) + " lines, Start pos: " + Str(startPos) + ", Search text length: " + Str(Len(searchText))
+  Else
+    searchText = text
+    startPos = 0
+    Debug "SetTextColor: Formatting entire text"
+  EndIf
+
+  ; Check if read-only
+  Protected options.l = SendMessage_(hEditor, #EM_GETOPTIONS, 0, 0)
+  Protected isReadOnly = Bool(options & #ECO_READONLY)
+  If isReadOnly
+    SendMessage_(hEditor, #EM_SETREADONLY, #False, 0)
+    Debug "SetTextColor: Temporarily disabled read-only"
+  EndIf
+
+  ; Loop through each pattern for the given index
+  For p = 0 To patternCount(index) - 1
+    pattern = Trim(patterns(index, p))
+    fg = patternColor(index, p)
+
+    ; Reset string match flag for this pattern
+    foundStringMatch = 0
+
+    ; Try EM_FINDTEXTEXW for simple string matches (case-sensitive)
+    pos = startPos
+    While #True
+      fte\chrg\cpMin = pos
+      fte\chrg\cpMax = Len(text) ; Search to end of full text
+      fte\lpstrText = pattern
+      Result = SendMessage_(hEditor, #EM_FINDTEXTEXW, #FR_DOWN | #FR_MATCHCASE, @fte)
+      If Result = -1 Or fte\chrgText\cpMin >= Len(text) Or (newLinesCount > 0 And fte\chrgText\cpMin >= startPos + Len(searchText))
+        Break ; No more matches or beyond search text
+      EndIf
+      foundStringMatch = 1
+      pos = fte\chrgText\cpMin
+      len = fte\chrgText\cpMax - fte\chrgText\cpMin
+
+      ; Set selection for the match (0-based)
+      SendMessage_(hEditor, #EM_SETSEL, pos, pos + len)
+
+      ; Apply color
+      Result = ApplyColorToSelection(hEditor, fg)
+
+      pos + len ; Move to next position
+    Wend
+
+    ; Only try regular expression if no string matches were found
+    If Not foundStringMatch
+      If CreateRegularExpression(0, pattern)
+        Protected *matches = ExamineRegularExpression(0, searchText)
+        While NextRegularExpressionMatch(0)
+          pos = RegularExpressionMatchPosition(0)
+          len = RegularExpressionMatchLength(0)
+          ; Adjust position to full text (1-based to 0-based)
+          pos = startPos + pos - 1
+
+          ; Set selection (0-based)
+          SendMessage_(hEditor, #EM_SETSEL, pos, pos + len)
+
+          ; Apply color
+          Result = ApplyColorToSelection(hEditor, fg)
+        Wend
+        FreeRegularExpression(0)
+      EndIf
+    EndIf
+  Next
+
+  ; Restore read-only if it was set
+  If isReadOnly
+    SendMessage_(hEditor, #EM_SETREADONLY, #True, 0)
+    Debug "SetTextColor: Restored read-only"
+  EndIf
+
+  ; Restore original selection
+  SendMessage_(hEditor, #EM_SETSEL, start, endx)
+  If newLinesCount = 0
+    HideGadget(containerLogEditorID(index), #False)
+  EndIf
+
+  ; Restore scroll position
+  SendMessage_(hEditor, #EM_SETSCROLLPOS, 0, @scrollPos)
+  ; Force redraw
+  SendMessage_(hEditor, #WM_SETREDRAW, 1, 0)
+  InvalidateRect_(hEditor, #Null, #True)
+  UpdateWindow_(hEditor)
+
+  ProcedureReturn 1
+EndProcedure
+
+
+  
+  
   Procedure ApplyEditorGadgetTheme(gadgetHandle)
-    Protected style, exStyle
-    Protected charFormat.CHARFORMAT2
-    Protected oldProc
+  Protected style, exStyle
+  Protected Result.l
+  Protected *buffer
+  
+  ; Apply Dark Mode attributes
+  DwmSetWindowAttributeDynamic(gadgetHandle, #DWMWA_USE_IMMERSIVE_DARK_MODE, @IsDarkModeActiveCached, SizeOf(Integer))
+  
+  ; Set left and right margins (in pixels)
+  ;Protected leftMargin = 10
+  ;Protected rightMargin = 10
+ ; SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
+ 
+Protected leftMargin = 10  ; Pixels
+  Protected rightMargin = 10 ; Pixels
+  Protected bottomMargin = 10 ; Pixels
+  Protected twipsPerPixel = 15 ; 1440 twips/inch ÷ 96 pixels/inch (adjust for DPI if needed)
+
+  ; Set left and right margins
+  SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
+  Debug "SetEditorMargins: Left margin: " + Str(leftMargin) + ", Right margin: " + Str(rightMargin)
+
+  ; Set bottom margin via paragraph formatting
+  Protected pfmt.PARAFORMAT2
+  pfmt\cbSize = SizeOf(PARAFORMAT2)
+  pfmt\dwMask = #PFM_SPACEAFTER
+  pfmt\dySpaceAfter = bottomMargin * twipsPerPixel ; 10 pixels → 150 twips
+  SendMessage_(gadgetHandle, #EM_SETPARAFORMAT, 0, @pfmt)
+  
+; Protected r.RECT
+; GetClientRect_(gadgetHandle, @r)
+; r\left = 10        ; left margin
+; r\right = r\right-10      ; right margin
+; r\bottom = r\bottom-10     ; bottom margin
+; 
+; SendMessage_(gadgetHandle, #EM_SETRECTNP, 0, @r)
+
+  ; Get current styles
+  style = GetWindowLong_(gadgetHandle, #GWL_STYLE)
+  exStyle = GetWindowLong_(gadgetHandle, #GWL_EXSTYLE)
+  
+  ; Remove styles
+  style = style & ~#WS_HSCROLL & ~#WS_SIZEBOX
+  SetWindowLong_(gadgetHandle, #GWL_STYLE, style)
+  
+  exStyle = exStyle & ~#WS_EX_SIZEGRIP
+  SetWindowLong_(gadgetHandle, #GWL_EXSTYLE, exStyle)
+  
+  ; Subclass the window to block resize grip detection (only once)
+  If GetProp_(gadgetHandle, "OrigWndProc") = 0
+    Protected oldProc = SetWindowLongPtr_(gadgetHandle, #GWLP_WNDPROC, @EditGadgetWindowCallback())
+    SetProp_(gadgetHandle, "OrigWndProc", oldProc)
+  EndIf
+  
+  ; Enable word wrap
+  SendMessage_(gadgetHandle, #EM_SETTARGETDEVICE, 0, 0)
+  
+  ; --- Themeing/Redraw ---
+  If IsDarkModeActiveCached
+    SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(0, 0, 0))
     
-    ; Apply Dark Mode attributes
-    DwmSetWindowAttributeDynamic(gadgetHandle, #DWMWA_USE_IMMERSIVE_DARK_MODE, @IsDarkModeActiveCached, SizeOf(Integer))
-    
-    ; Set left and right margins (in pixels)
-    Protected leftMargin = 10
-    Protected rightMargin = 10
-    SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
-    
-    ; Get current styles
-    style = GetWindowLong_(gadgetHandle, #GWL_STYLE)
-    exStyle = GetWindowLong_(gadgetHandle, #GWL_EXSTYLE)
-    
-    ; Remove styles
-    style = style & ~#WS_HSCROLL & ~#WS_SIZEBOX
-    SetWindowLong_(gadgetHandle, #GWL_STYLE, style)
-    
-    exStyle = exStyle & ~#WS_EX_SIZEGRIP
-    SetWindowLong_(gadgetHandle, #GWL_EXSTYLE, exStyle)
-    
-    ; Subclass the window to block resize grip detection (only once)
-    If GetProp_(gadgetHandle, "OrigWndProc") = 0
-      oldProc = SetWindowLongPtr_(gadgetHandle, #GWLP_WNDPROC, @EditGadgetWindowCallback())
-      SetProp_(gadgetHandle, "OrigWndProc", oldProc)
+    ; Set default text color without overwriting existing formatting
+     *buffer = AllocateMemory(60)
+    If *buffer
+      PokeL(*buffer + 0, 60) ; cbSize
+      PokeL(*buffer + 4, #CFM_COLOR) ; dwMask
+      PokeL(*buffer + 8, 0) ; dwEffects
+      PokeL(*buffer + 20, RGB(255, 255, 255)) ; crTextColor (white for dark mode)
+      
+
+      Result = SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, *buffer)
+      
+     
+      FreeMemory(*buffer)
     EndIf
     
-    ; Enable word wrap
-    SendMessage_(gadgetHandle, #EM_SETTARGETDEVICE, 0, 0)
+    SetWindowThemeDynamic(gadgetHandle, "DarkMode_Explorer")
+  Else
+    SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255))
     
-    ; --- Themeing/Redraw ---
-    If IsDarkModeActiveCached
-      SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(0, 0, 0))
+    ; Set default text color without overwriting existing formatting
+     *buffer = AllocateMemory(60)
+    If *buffer
+      PokeL(*buffer + 0, 60) ; cbSize
+      PokeL(*buffer + 4, #CFM_COLOR) ; dwMask
+      PokeL(*buffer + 8, 0) ; dwEffects
+      PokeL(*buffer + 20, RGB(0, 0, 0)) ; crTextColor (black for light mode)
       
-      charFormat\cbSize = SizeOf(CHARFORMAT2)
-      charFormat\dwMask = #CFM_COLOR
-      charFormat\crTextColor = RGB(255, 255, 255)
-      SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, @charFormat)
       
-      SetWindowThemeDynamic(gadgetHandle, "DarkMode_Explorer")
-    Else
-      SendMessage_(gadgetHandle, #EM_SETBKGNDCOLOR, 0, RGB(255, 255, 255))
       
-      charFormat\cbSize = SizeOf(CHARFORMAT2)
-      charFormat\dwMask = #CFM_COLOR
-      charFormat\crTextColor = RGB(0, 0, 0)
-      SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, @charFormat)
+      Result = SendMessage_(gadgetHandle, #EM_SETCHARFORMAT, #SCF_ALL, *buffer)
       
-      SetWindowThemeDynamic(gadgetHandle, "Explorer")
+      
+      FreeMemory(*buffer)
     EndIf
     
-    ; 📢 FIX: Post a custom message to force the frame change *after* the control
-    ; has finished processing the initial load and theme changes.
-    PostMessage_(gadgetHandle, #WM_USER_FORCE_REDRAW, 0, 0)
-    
-    ; Final aggressive repaints
-    #RDW_ERASE = $0004
-    RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_ERASE)
-    InvalidateRect_(gadgetHandle, #Null, #True)
-    UpdateWindow_(gadgetHandle)
-  EndProcedure
+    SetWindowThemeDynamic(gadgetHandle, "Explorer")
+  EndIf
+  
+  ; Post custom message to force frame change
+  PostMessage_(gadgetHandle, #WM_USER_FORCE_REDRAW, 0, 0)
+  
+  ; Final aggressive repaints
+  SendMessage_(gadgetHandle, #WM_SETREDRAW, 1, 0)
+  RedrawWindow_(gadgetHandle, #Null, #Null, #RDW_INVALIDATE | #RDW_FRAME | #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_ERASE)
+  InvalidateRect_(gadgetHandle, #Null, #True)
+  UpdateWindow_(gadgetHandle)
+  
+  
+  
+ 
+  For index = 0 To monitorCount-1
+    If IsGadget( containerLogEditorID(index))
+        SetEditorTextColor(index)
+      EndIf
+    Next
+
+  
+EndProcedure
   
   
   
@@ -737,7 +1048,6 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   
   
   Procedure ApplyThemeHandle(hWnd)
-    
     ApplyThemeToWindowHandle(hWnd)
     EnumChildWindows_(hWnd, @ApplyThemeToWindowChildren(), 0)
     UpdateWindow_(hWnd)    
@@ -1125,7 +1435,64 @@ EndProcedure
 
 
 
+#EM_GETLINECOUNT = $BA
+#EM_LINESCROLL   = $B6
+#EM_GETFIRSTVISIBLELINE = $CE
+#EM_SCROLLCARET = $B7
+#EM_SETSEL = $B1
+#WM_GETTEXTLENGTH = $0E
+#ECO_READONLY = $800
+
 Procedure.l IsAtScrollBottom(EditorGadgetID)
+  Protected Handle.i = GadgetID(EditorGadgetID)
+  If Not Handle
+    Debug "IsAtScrollBottom: Invalid editor handle"
+    ProcedureReturn #False
+  EndIf
+
+  Protected si.SCROLLINFO
+  si\cbSize = SizeOf(SCROLLINFO)
+  si\fMask = #SIF_ALL
+  If GetScrollInfo_(Handle, #SB_VERT, @si)
+    Debug "IsAtScrollBottom: nPos: " + Str(si\nPos) + ", nPage: " + Str(si\nPage) + ", nMax: " + Str(si\nMax)
+    If si\nPos + si\nPage >= si\nMax
+      ProcedureReturn #True
+    EndIf
+  EndIf
+
+  ProcedureReturn #False
+EndProcedure
+
+Procedure GetEditorLineHeight(hGadget)
+  Protected hFont.i = SendMessage_(hGadget, #WM_GETFONT, 0, 0)
+  If hFont = 0 : ProcedureReturn 16 ; fallback
+
+  Protected hDC.i = GetDC_(hGadget)
+  Protected hOldFont.i = SelectObject_(hDC, hFont)
+  
+  Protected tm.TEXTMETRIC
+  GetTextMetrics_(hDC, @tm)
+  
+  SelectObject_(hDC, hOldFont)
+  ReleaseDC_(hGadget, hDC)
+  
+  ProcedureReturn tm\tmHeight + tm\tmExternalLeading
+EndIf 
+ProcedureReturn 0
+EndProcedure
+
+Procedure ScrollEditorToBottom(gadget)
+  Protected hEditor = GadgetID(gadget)
+  If hEditor = 0 : ProcedureReturn : EndIf
+
+
+  ; --- Scroll caret into view ---
+  SendMessage_(hEditor, #EM_SETSEL, -1, -1)
+  SendMessage_(hEditor, #EM_SCROLLCARET, 0, 0)
+
+EndProcedure
+
+Procedure.l IsAtScrollBottomX(EditorGadgetID)
   Protected Handle.i = GadgetID(EditorGadgetID)
   Protected si.SCROLLINFO
   
@@ -1153,7 +1520,7 @@ EndProcedure
 #EM_GETLINECOUNT = $BA
 #EM_LINESCROLL   = $B6
 
-Procedure ScrollEditorToBottom(EditorGadgetID)
+Procedure ScrollEditorToBottomX(EditorGadgetID)
   Protected Handle.i = GadgetID(EditorGadgetID)
   
   If Handle
@@ -1218,22 +1585,20 @@ Global notificationImageGadgetID = 0
 Procedure ShowSystrayNotification(index, text.s)
   
   If ElapsedMilliseconds()-containerStartedTime(index) < 5000
-   ProcedureReturn
+    ProcedureReturn
   EndIf 
+  
+  
+  
 
   
+  RemoveWindowTimer(notificationWinID, #Notification_TimerID)
   
-  Debug Text
-  Debug "notificationTextGadgetID"
-  Debug notificationTextGadgetID
-  
-      RemoveWindowTimer(notificationWinID, #Notification_TimerID)
-
   If notificationWinID <>0
     SetGadgetText(notificationTextGadgetID,text)
     SetGadgetState(notificationImageGadgetID,ImageID(infoImageRunningID(index)))
-          AddWindowTimer(notificationWinID, #Notification_TimerID, #Notification_Duration)
-
+    AddWindowTimer(notificationWinID, #Notification_TimerID, #Notification_Duration)
+    
   Else
     
     ExamineDesktops()
@@ -1245,10 +1610,9 @@ Procedure ShowSystrayNotification(index, text.s)
       StickyWindow(winID,#True)
       notificationTextGadgetID = TextGadget(#PB_Any, 50, 5, #Notification_Large_Width-64, 20, text,#PB_Text_Center )
       
-      Debug "notificationTextGadgetID"
-      Debug notificationTextGadgetID
+
       
-     notificationImageGadgetID = ImageGadget(#PB_Any,14, 0,26,26,ImageID(infoImageRunningID(index)),  #PB_Image_Raised)
+      notificationImageGadgetID = ImageGadget(#PB_Any,14, 0,26,26,ImageID(infoImageRunningID(index)),  #PB_Image_Raised)
       
       
       notificationWinID = winID
@@ -1258,7 +1622,13 @@ Procedure ShowSystrayNotification(index, text.s)
       Repeat :Delay(1): Until WindowEvent() = 0
       ShowWindowFadeIn(winID)
     EndIf
+    
+    
   EndIf
+  GadgetToolTip(notificationImageGadgetID, text)
+  
+  GadgetToolTip(notificationTextGadgetID, text)
+  
 EndProcedure
 
 
@@ -1613,28 +1983,28 @@ Procedure CreateMonitorIcon(index, innerCol, bgCol)
   EndIf
   
   
-Protected img = CreateImage(#PB_Any, 32, 32, 32, bgCol)
-If img
-  StartVectorDrawing(ImageVectorOutput(img))
+  Protected img = CreateImage(#PB_Any, 32, 32, 32, bgCol)
+  If img
+    StartVectorDrawing(ImageVectorOutput(img))
+    
+    ; Fill entire background first
+    VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
+    FillVectorOutput()
+    
+    ; Draw colored rectangle behind the arrow
+    VectorSourceColor(RGBA(Red(containerStatusColor(index)), Green(containerStatusColor(index)), Blue(containerStatusColor(index)), 255))
+    
+    ; Draw circle fill
+    AddPathEllipse(15, 15,14,14)      ; width=16, height=16
+    FillPath()
+    
+    StopVectorDrawing()
+    
+    infoImageRunningID(index) = img
+  EndIf
   
-  ; Fill entire background first
-  VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
-  FillVectorOutput()
   
-  ; Draw colored rectangle behind the arrow
-  VectorSourceColor(RGBA(Red(containerStatusColor(index)), Green(containerStatusColor(index)), Blue(containerStatusColor(index)), 255))
   
-  ; Draw circle fill
-  AddPathEllipse(15, 15,14,14)      ; width=16, height=16
-  FillPath()
-  
-  StopVectorDrawing()
-  
-  infoImageRunningID(index) = img
-EndIf
-
-
-
   ForEach logWindows()
     If logWindows()\containerIndex = index
       CreateWindowIcon(logWindows()\winID,index)
@@ -2073,10 +2443,7 @@ Procedure StartDockerFollow(index)
   container$ = containerName(index)
   
   ProgramID =  RunProgram(dockerExecutable$, "inspect -f {{.State.Running}} " + container$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
-  Debug "RunProgramRunProgramRunProgramRunProgramRunProgramRunProgram"
-  Debug ProgramID
-  Debug IsProgram(ProgramID)
-  Debug ProgramRunning(ProgramID)
+
   
   If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
     If containerStarted(index)
@@ -2085,7 +2452,7 @@ Procedure StartDockerFollow(index)
     ProcedureReturn
   EndIf
   
-  
+  ; Check if container started
   Repeat
     dataRead = #False ; Reset for this iteration
     Repeat
@@ -2103,7 +2470,6 @@ Procedure StartDockerFollow(index)
       
       line = ReadProgramString(ProgramID)    
       
-      Debug line
       If FindString(line,"false")>0
         StopDockerFollow(index)
         MessageRequester(#APP_TITLE, "Container '" + container$ + "' is not running.")
@@ -2121,9 +2487,7 @@ Procedure StartDockerFollow(index)
   Until dataRead = #False And #False
   
   dockerCommand$ = "/k " + Chr(34) + dockerExecutable$  +Chr(34) +" logs --follow --tail 1000 " + container$ 
-  Debug "START"
   dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read| #PB_Program_Hide );
-  Debug "STARTED"
   
   If trayID(index) = 0
     CreateMonitorIcon(index, innerColor(index), bgColor(index))
@@ -2153,14 +2517,6 @@ Procedure.s CleanTooltip(s.s)
 EndProcedure
 
 
-
-Procedure.i MaxI(a.i, b.i)
-  If a > b
-    ProcedureReturn a
-  Else
-    ProcedureReturn b
-  EndIf
-EndProcedure
 
 Procedure UpdateMonitorIcon(index, matchColor)
   containerStatusColor(index) = matchColor
@@ -2221,7 +2577,129 @@ Procedure.s RemoveFirstLineFromText(Text.s)
   ProcedureReturn NewText
 EndProcedure
 
-Procedure AddOutputLines(index,editorGadgetID,lines.s)
+
+
+
+
+
+
+
+#ST_DEFAULT = 0    ; Replace entire text
+#ST_SELECTION = 1  ; Insert at selection
+#ST_SELECTION = 1  ; Not used, but kept for reference
+#ECO_READONLY = $800  ; 0x800 for read-only flag
+Procedure AddOutputLines(index, editorGadgetID, lines.s)
+  
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+   
+  Protected hEditor = GadgetID(editorGadgetID)
+  If Not hEditor
+    Debug "AddOutputLines: Invalid editor handle"
+    ProcedureReturn
+  EndIf
+
+  ; Get current text for debugging
+  Protected text.s = GetEditorGadgetText(hEditor)
+  Debug "AddOutputLines: Initial text length: " + Str(Len(text))
+  If Len(text) > 100
+    Debug "AddOutputLines: First 100 chars: " + Left(text, 100)
+  Else
+    Debug "AddOutputLines: Full text: " + text
+  EndIf
+
+  ; Check if read-only
+  Protected options.l = SendMessage_(hEditor, #EM_GETOPTIONS, 0, 0)
+  Protected isReadOnly = Bool(options & #ECO_READONLY)
+  Debug "AddOutputLines: Is read-only: " + Str(isReadOnly)
+
+  ; Temporarily disable read-only if needed
+  If isReadOnly
+    SendMessage_(hEditor, #EM_SETREADONLY, #False, 0)
+    Debug "AddOutputLines: Temporarily disabled read-only"
+  EndIf
+
+  ; Handle line limit
+  Protected lineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
+  Debug "AddOutputLines: Editor line count: " + Str(lineCount) + ", MAX_LINES: " + Str(#MAX_LINES)
+  If lineCount > #MAX_LINES
+    ; Select the first line
+    Protected startPos.l = SendMessage_(hEditor, #EM_LINEINDEX, 0, 0)
+    Protected firstLineLen.l = SendMessage_(hEditor, #EM_LINELENGTH, startPos, 0)
+    Protected endPos.l = startPos + firstLineLen + 2 ; Include CRLF
+    SendMessage_(hEditor, #EM_SETSEL, startPos, endPos)
+    Protected startSel.l, endSel.l
+    SendMessage_(hEditor, #EM_GETSEL, @startSel, @endSel)
+    Debug "AddOutputLines: Deleting first line, Selection: Start = " + Str(startSel) + ", End = " + Str(endSel)
+    
+    ; Debug first line content
+    Protected *buffer = AllocateMemory((firstLineLen + 3) * SizeOf(Character))
+    If *buffer
+      PokeW(*buffer, firstLineLen) ; Set length for EM_GETLINE
+      SendMessage_(hEditor, #EM_GETLINE, 0, *buffer)
+      Protected firstLineText.s = PeekS(*buffer, -1, #PB_Unicode)
+      Debug "AddOutputLines: First line text: '" + firstLineText + "'"
+      FreeMemory(*buffer)
+    EndIf
+
+    ; Delete by replacing with empty string
+    Protected Result.l = SendMessage_(hEditor, #EM_REPLACESEL, #True, @"")
+    Debug "AddOutputLines: Deleted first line, Result: " + Str(Result)
+    If Result = 0
+      Debug "AddOutputLines: EM_REPLACESEL failed, Last error: " + Str(GetLastError_())
+      SendMessage_(hEditor, #WM_CUT, 0, 0)
+      Debug "AddOutputLines: Tried WM_CUT as fallback"
+    EndIf
+  EndIf
+
+  ; Get line count BEFORE append (after deletion if any)
+  Protected oldLineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
+  Debug "AddOutputLines: Line count before append: " + Str(oldLineCount)
+
+  ; Check if at scroll bottom
+  Protected wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
+
+  ; Append new lines at the end
+  Protected textLen.l = SendMessage_(hEditor, #WM_GETTEXTLENGTH, 0, 0)
+  Debug "AddOutputLines: Text length before append: " + Str(textLen)
+  SendMessage_(hEditor, #EM_SETSEL, textLen, textLen) ; Select end of text
+  SendMessage_(hEditor, #EM_GETSEL, @startSel, @endSel)
+  Debug "AddOutputLines: Selection before append: Start = " + Str(startSel) + ", End = " + Str(endSel)
+  
+  Protected appendText.s = Chr(13) + Chr(10) + lines ; Use #CRLF$ for Windows Rich Edit
+  Result = SendMessage_(hEditor, #EM_REPLACESEL, #True, @appendText)
+  Debug "AddOutputLines: Appended text: '" + appendText + "', Result: " + Str(Result)
+  If Result = 0
+    Debug "AddOutputLines: EM_REPLACESEL failed, Last error: " + Str(GetLastError_())
+  EndIf
+
+  ; Verify text length after append
+  Protected newTextLen.l = SendMessage_(hEditor, #WM_GETTEXTLENGTH, 0, 0)
+  Debug "AddOutputLines: Text length after append: " + Str(newTextLen)
+
+  ; Calculate number of new lines using editor's line count
+  Protected newLineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
+  Protected newLinesCount.l = newLineCount - oldLineCount
+  If lines = "" And newLinesCount = 1 ; If only empty newline added
+    newLinesCount = 0
+  EndIf
+  Debug "AddOutputLines: New lines count: " + Str(newLinesCount)
+
+  ; Restore read-only if it was set
+  If isReadOnly
+    SendMessage_(hEditor, #EM_SETREADONLY, #True, 0)
+    Debug "AddOutputLines: Restored read-only"
+  EndIf
+
+  ; Color the new lines (or all text if newLinesCount = 0)
+  SetEditorTextColor(index, newLinesCount)
+
+  ; Restore scroll position if needed
+  If wasAtScrollBottom
+    ScrollEditorToBottom(editorGadgetID)
+  EndIf
+  
+  
+CompilerElse
   text.s = GetGadgetText(editorGadgetID)
   
   ListSize = ListSize(containerOutput(index)\lines()) 
@@ -2229,12 +2707,22 @@ Procedure AddOutputLines(index,editorGadgetID,lines.s)
     text = RemoveFirstLineFromText(text.s)
   EndIf
   wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
+  
   SetGadgetText(editorGadgetID,text+Chr(10)+lines)
+  SetEditorTextColor( index,#True)
+
   
   If wasAtScrollBottom
     ScrollEditorToBottom(editorGadgetID)
   EndIf
-EndProcedure 
+  CompilerEndIf
+  
+  
+  
+EndProcedure
+
+
+
 
 
 ; -------------------- CHECK DOCKER OUTPUT --------------------
@@ -2479,7 +2967,6 @@ EndProcedure
 
 
 
-
 Procedure ShowLogs(index)
   
   ForEach logWindows()
@@ -2504,10 +2991,10 @@ Procedure ShowLogs(index)
   
   ForEach containerOutput(index)\lines()
     text$ =  text$+Chr(10)+containerOutput(index)\lines()
-    
+    HandleInputLine(index, containerOutput(index)\lines(),#False)
   Next
   
-  
+
   ; Open non-blocking window
   If containterMetaData(index)\logWindowW = 0 And containterMetaData(index)\logWindowH = 0
     containterMetaData(index)\logWindowW = 600
@@ -2528,12 +3015,15 @@ Procedure ShowLogs(index)
     
     StickyWindow(winID,#True) 
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-      editorID = EditorGadget(#PB_Any, -2, -2,  containterMetaData(index)\logWindowW+4, containterMetaData(index)\logWindowH+4, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
+      editorID = EditorGadget(#PB_Any, -2, -2,  containterMetaData(index)\logWindowW+4, containterMetaData(index)\logWindowH+4,  #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
       ;dark mode no border
     CompilerElse
       editorID = EditorGadget(#PB_Any, 0, 0,  containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
     CompilerEndIf 
-    SetGadgetText(editorID, text$)
+    containerLogEditorID(index) = editorID
+    LoadLibrary_("Msftedit.dll")
+    SendMessage_(GadgetID(editorID), #EM_SETTEXTMODE, #TM_RICHTEXT, 0)
+    
     ; Enable anti-aliasing with cross-platform font selection
     CompilerSelect #PB_Compiler_OS
       CompilerCase #PB_OS_Windows
@@ -2547,8 +3037,8 @@ Procedure ShowLogs(index)
     If LoadFont(0, fontName$, 10, #PB_Font_HighQuality)
       SetGadgetFont(editorID, FontID(0))
     EndIf
-    SetGadgetColor(editorID,#PB_Gadget_FrontColor,RGB(200,200,200)) 
-    SetGadgetColor(editorID, #PB_Gadget_BackColor ,RGB(0,0,0)) 
+    ;SetGadgetColor(editorID,#PB_Gadget_FrontColor,RGB(200,200,200)) 
+   ; SetGadgetColor(editorID, #PB_Gadget_BackColor ,RGB(20,0,0)) 
     
     AddElement(logWindows())
     logWindows()\winID = winID
@@ -2558,20 +3048,19 @@ Procedure ShowLogs(index)
     BindEvent(#PB_Event_CloseWindow, @CloseLogWindow(),winID)
     BindEvent(#PB_Event_MoveWindow, @MoveLogWindow(),winID)
     
+    SetGadgetText(editorID,text$)
+    SetEditorTextColor( index)
+    
     ScrollEditorToBottom(editorID)
-    
-    
-    
+
     ApplyTheme(winID)
     Repeat :Delay(1): Until WindowEvent() = 0
     ShowWindowFadeIn(winID)
-    
-    
-    Debug "CREATE ICON"
     CreateWindowIcon(winID,index)
     UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
     
-    
+        ScrollEditorToBottom(editorID)
+
   EndIf
 EndProcedure
 
@@ -2581,7 +3070,7 @@ EndProcedure
 Procedure StartApp()
   
   IsDarkModeActive()
-  SetWindowCallback(@WindowCallback())
+ SetWindowCallback(@WindowCallback())
   
   If OpenWindow(0,0,0,420,300,#APP_TITLE,#PB_Window_SystemMenu  | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered | #PB_Window_Invisible)
     ; Gadgets
@@ -2617,13 +3106,13 @@ Procedure StartApp()
         RemoveWindowTimer(notificationRunningWinID, #Notification_Running_TimerID)
         CloseWindow(notificationRunningWinID)
         notificationRunningWinID = 0
-
+        
       EndIf
       If  notificationWinID <> 0 And Window = notificationWinID 
         RemoveWindowTimer(notificationWinID, #Notification_TimerID)
         CloseWindow(notificationWinID)
         notificationWinID = 0
-
+        
       EndIf
     EndIf     
     
@@ -2852,6 +3341,8 @@ Procedure StartApp()
               
               If containerStarted(currentContainerIndex)
                 HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
+                SetEditorTextColor( currentContainerIndex)
+
               EndIf 
               
               SaveSettings()
@@ -2989,9 +3480,9 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1219
-; FirstLine = 1205
-; Folding = ---------------
+; CursorPosition = 1487
+; FirstLine = 1480
+; Folding = ----------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
