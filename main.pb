@@ -2,7 +2,7 @@
 #APP_TITLE = "Docker Status"
 #MAX_CONTAINERS = 1000
 #MAX_PATTERNS   = 1000
-#MAX_LINES   = 500
+#MAX_LINES   = 1000
 #ICON_SIZE      =64
 #ICON_OVERLAY_SIZE      = 128
 
@@ -703,7 +703,6 @@ Procedure SetEditorTextColor(index, newLinesCount.l = 0)
     ProcedureReturn 0
   EndIf
 
-  Debug ""
   ; Determine search text and starting position
   If newLinesCount > 0
     ; Find the start of the last newLinesCount lines
@@ -713,11 +712,9 @@ Procedure SetEditorTextColor(index, newLinesCount.l = 0)
     startPos = SendMessage_(hEditor, #EM_LINEINDEX, targetLine, 0)
     If startPos = -1 : startPos = 0 : EndIf ; Fallback if invalid
     searchText = Mid(text, startPos + 1)
-    Debug "SetTextColor: Formatting last " + Str(newLinesCount) + " lines, Start pos: " + Str(startPos) + ", Search text length: " + Str(Len(searchText))
   Else
     searchText = text
     startPos = 0
-    Debug "SetTextColor: Formatting entire text"
   EndIf
 
   ; Check if read-only
@@ -725,7 +722,6 @@ Procedure SetEditorTextColor(index, newLinesCount.l = 0)
   Protected isReadOnly = Bool(options & #ECO_READONLY)
   If isReadOnly
     SendMessage_(hEditor, #EM_SETREADONLY, #False, 0)
-    Debug "SetTextColor: Temporarily disabled read-only"
   EndIf
 
   ; Loop through each pattern for the given index
@@ -783,7 +779,6 @@ Procedure SetEditorTextColor(index, newLinesCount.l = 0)
   ; Restore read-only if it was set
   If isReadOnly
     SendMessage_(hEditor, #EM_SETREADONLY, #True, 0)
-    Debug "SetTextColor: Restored read-only"
   EndIf
 
   ; Restore original selection
@@ -825,7 +820,6 @@ Protected leftMargin = 10  ; Pixels
 
   ; Set left and right margins
   SendMessage_(gadgetHandle, #EM_SETMARGINS, #EC_LEFTMARGIN | #EC_RIGHTMARGIN, leftMargin | (rightMargin << 16))
-  Debug "SetEditorMargins: Left margin: " + Str(leftMargin) + ", Right margin: " + Str(rightMargin)
 
   ; Set bottom margin via paragraph formatting
   Protected pfmt.PARAFORMAT2
@@ -1443,25 +1437,7 @@ EndProcedure
 #WM_GETTEXTLENGTH = $0E
 #ECO_READONLY = $800
 
-Procedure.l IsAtScrollBottom(EditorGadgetID)
-  Protected Handle.i = GadgetID(EditorGadgetID)
-  If Not Handle
-    Debug "IsAtScrollBottom: Invalid editor handle"
-    ProcedureReturn #False
-  EndIf
 
-  Protected si.SCROLLINFO
-  si\cbSize = SizeOf(SCROLLINFO)
-  si\fMask = #SIF_ALL
-  If GetScrollInfo_(Handle, #SB_VERT, @si)
-    Debug "IsAtScrollBottom: nPos: " + Str(si\nPos) + ", nPage: " + Str(si\nPage) + ", nMax: " + Str(si\nMax)
-    If si\nPos + si\nPage >= si\nMax
-      ProcedureReturn #True
-    EndIf
-  EndIf
-
-  ProcedureReturn #False
-EndProcedure
 
 Procedure GetEditorLineHeight(hGadget)
   Protected hFont.i = SendMessage_(hGadget, #WM_GETFONT, 0, 0)
@@ -1492,7 +1468,7 @@ Procedure ScrollEditorToBottom(gadget)
 
 EndProcedure
 
-Procedure.l IsAtScrollBottomX(EditorGadgetID)
+Procedure.l IsAtScrollBottom(EditorGadgetID)
   Protected Handle.i = GadgetID(EditorGadgetID)
   Protected si.SCROLLINFO
   
@@ -1504,7 +1480,11 @@ Procedure.l IsAtScrollBottomX(EditorGadgetID)
       ; 3. Check the condition for being at the bottom.
       ; The scrollbar is at the bottom when:
       ; Current Position (nPos) + Viewport Size (nPage) >= Maximum Scrollable Value (nMax) + 1
-      ; Debug "SCROLL "+Str(si\nPos + si\nPage - (si\nMax -100))+" > 0 ?"
+      Debug "SCROLL "+Str(si\nPos + si\nPage - (si\nMax -100))+" > 0 ?"
+      Debug si\nPos
+            Debug si\nPage
+            Debug si\nMax
+
       If si\nPos + si\nPage >= si\nMax - 100
         ProcedureReturn #True
       EndIf
@@ -2254,7 +2234,7 @@ Procedure EditColorsDialog(index)
 EndProcedure
 
 ; -------------------- ADD PATTERN --------------------
-Procedure AddPattern(index, pat.s, color.l)
+Procedure AddPattern(index, pat.s, color.l,notification)
   If index < 0 Or index >= monitorCount
     ProcedureReturn
   EndIf
@@ -2263,21 +2243,42 @@ Procedure AddPattern(index, pat.s, color.l)
   EndIf
   patterns(index, patternCount(index)) = pat
   patternColor(index, patternCount(index)) = color
+  patternsNotification(index,patternCount(index)) = notification
+
   patternCount(index) + 1
   SaveSettings()
 EndProcedure
 
 ; -------------------- ADD PATTERN DIALOG --------------------
 Procedure AddPatternDialog(monitorIndex)
-  If OpenWindow(2,0,0,380,130,"Add Status Log Pattern",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
+  If OpenWindow(2,0,0,380,170,"Add Status Log Pattern",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
     StringGadget(20,10,10,360,24,"")
     SetActiveGadget(20)
     TextGadget(21,10,53,100,24,"Pattern Color:")
     ContainerGadget(24,95,50,24,24,#PB_Container_BorderLess)
     CloseGadgetList()
     ButtonGadget(22,125,50,100,24,"Choose...")
-    ButtonGadget(23,80,100,80,24,"OK")
-    ButtonGadget(25,170,100,80,24,"Cancel")
+    
+    
+        
+    ; --- New alert section (spaced 10px above/below) ---
+    CheckBoxGadget(26, 10, 90, 15, 24, "")
+    HyperLinkGadget(27, 30, 90, 100, 24, "Show notification",0) ; color via callback on Windows
+    
+    ; ---------------------------------------------------
+    
+    ; Centered OK/Cancel buttons, same close spacing as before
+    Protected buttonWidth = 80
+    Protected buttonSpacing = 10   ; closer, like your original layout
+    Protected totalWidth = buttonWidth * 2 + buttonSpacing
+    Protected startX = (380 - totalWidth) / 2
+    
+    ButtonGadget(23, startX, 140, buttonWidth, 24, "OK")
+    ButtonGadget(25, startX + buttonWidth + buttonSpacing, 140, buttonWidth, 24, "Cancel")
+    
+
+    
+    
     DisableGadget(23,#True)
     
     patCol = RGB(255,0,0)
@@ -2458,7 +2459,6 @@ Procedure StartDockerFollow(index)
     Repeat
       line.s = ReadProgramError(ProgramID) 
       If line <> ""
-        Debug line
         dataRead = #True
       EndIf
     Until line = "" ; Loop until ReadProgramError returns an empty string
@@ -2582,99 +2582,127 @@ EndProcedure
 
 
 
-
-
 #ST_DEFAULT = 0    ; Replace entire text
 #ST_SELECTION = 1  ; Insert at selection
 #ST_SELECTION = 1  ; Not used, but kept for reference
 #ECO_READONLY = $800  ; 0x800 for read-only flag
+
+
+#CFM_COLOR = $40000000
+#CFE_AUTOCOLOR = $40000000
+
+
+#CFM_COLOR = $40000000
+
+
+
 Procedure AddOutputLines(index, editorGadgetID, lines.s)
-  
+  Debug "AddOutputLines"
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
    
   Protected hEditor = GadgetID(editorGadgetID)
   If Not hEditor
-    Debug "AddOutputLines: Invalid editor handle"
     ProcedureReturn
   EndIf
-
+  ; Check if at scroll bottom
+  Protected wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
+    
+  ; Disable redraw to prevent flickering
+  SendMessage_(hEditor, #WM_SETREDRAW, #False, 0)
+  
   ; Get current text for debugging
   Protected text.s = GetEditorGadgetText(hEditor)
-  Debug "AddOutputLines: Initial text length: " + Str(Len(text))
-  If Len(text) > 100
-    Debug "AddOutputLines: First 100 chars: " + Left(text, 100)
-  Else
-    Debug "AddOutputLines: Full text: " + text
-  EndIf
 
   ; Check if read-only
   Protected options.l = SendMessage_(hEditor, #EM_GETOPTIONS, 0, 0)
   Protected isReadOnly = Bool(options & #ECO_READONLY)
-  Debug "AddOutputLines: Is read-only: " + Str(isReadOnly)
 
   ; Temporarily disable read-only if needed
   If isReadOnly
     SendMessage_(hEditor, #EM_SETREADONLY, #False, 0)
-    Debug "AddOutputLines: Temporarily disabled read-only"
   EndIf
+  ; Save current scroll position if not at bottom (AFTER deletion)
+  Protected scrollPos.POINT
+  If Not wasAtScrollBottom
+    SendMessage_(hEditor, #EM_GETSCROLLPOS, 0, @scrollPos)
+    Debug "Saved scroll position: X=" + Str(scrollPos\x) + ", Y=" + Str(scrollPos\y)
+  EndIf
+  ; Count how many lines we're about to add
+  Protected newLinesToAdd.l = 1 ; At least one line
+  Protected i.l
+  For i = 1 To Len(lines)
+    If Mid(lines, i, 1) = Chr(10)
+      newLinesToAdd + 1
+    EndIf
+  Next
+  Debug "Lines to add: " + Str(newLinesToAdd)
 
-  ; Handle line limit
+  ; Handle line limit - delete as many lines as we're adding
   Protected lineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
-  Debug "AddOutputLines: Editor line count: " + Str(lineCount) + ", MAX_LINES: " + Str(#MAX_LINES)
-  If lineCount > #MAX_LINES
-    ; Select the first line
-    Protected startPos.l = SendMessage_(hEditor, #EM_LINEINDEX, 0, 0)
-    Protected firstLineLen.l = SendMessage_(hEditor, #EM_LINELENGTH, startPos, 0)
-    Protected endPos.l = startPos + firstLineLen + 2 ; Include CRLF
-    SendMessage_(hEditor, #EM_SETSEL, startPos, endPos)
-    Protected startSel.l, endSel.l
-    SendMessage_(hEditor, #EM_GETSEL, @startSel, @endSel)
-    Debug "AddOutputLines: Deleting first line, Selection: Start = " + Str(startSel) + ", End = " + Str(endSel)
+      Protected lineCountBeforeDeletion.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
+
+  If lineCount + newLinesToAdd > #MAX_LINES
+    Protected linesToDelete.l = (lineCount + newLinesToAdd) - #MAX_LINES
+    Debug "Current line count: " + Str(lineCount) + ", Lines to delete: " + Str(linesToDelete)
     
-    ; Debug first line content
-    Protected *buffer = AllocateMemory((firstLineLen + 3) * SizeOf(Character))
-    If *buffer
-      PokeW(*buffer, firstLineLen) ; Set length for EM_GETLINE
-      SendMessage_(hEditor, #EM_GETLINE, 0, *buffer)
-      Protected firstLineText.s = PeekS(*buffer, -1, #PB_Unicode)
-      Debug "AddOutputLines: First line text: '" + firstLineText + "'"
-      FreeMemory(*buffer)
-    EndIf
+    ; Delete multiple lines from the top
+    Protected startSel.l, endSel.l
+    For i = 1 To linesToDelete
+      ; Select the first line
+      Protected startPos.l = SendMessage_(hEditor, #EM_LINEINDEX, 0, 0)
+      Protected firstLineLen.l = SendMessage_(hEditor, #EM_LINELENGTH, startPos, 0)
+      Protected endPos.l = startPos + firstLineLen + 2 ; Include CRLF
+      SendMessage_(hEditor, #EM_SETSEL, startPos, endPos)
+      SendMessage_(hEditor, #EM_GETSEL, @startSel, @endSel)
+      Debug "Deleting line " + Str(i) + "/" + Str(linesToDelete) + ", Selection: Start = " + Str(startSel) + ", End = " + Str(endSel)
+      
+;       ; Debug first line content
+;       Protected *buffer = AllocateMemory((firstLineLen + 3) * SizeOf(Character))
+;       If *buffer
+;         PokeW(*buffer, firstLineLen) ; Set length for EM_GETLINE
+;         SendMessage_(hEditor, #EM_GETLINE, 0, *buffer)
+;         Protected firstLineText.s = PeekS(*buffer, -1, #PB_Unicode)
+;         Debug "Deleting line text: '" + firstLineText + "'"
+;         FreeMemory(*buffer)
+;       EndIf
 
-    ; Delete by replacing with empty string
-    Protected Result.l = SendMessage_(hEditor, #EM_REPLACESEL, #True, @"")
-    Debug "AddOutputLines: Deleted first line, Result: " + Str(Result)
-    If Result = 0
-      Debug "AddOutputLines: EM_REPLACESEL failed, Last error: " + Str(GetLastError_())
-      SendMessage_(hEditor, #WM_CUT, 0, 0)
-      Debug "AddOutputLines: Tried WM_CUT as fallback"
-    EndIf
+      ; Delete by replacing with empty string
+       SendMessage_(hEditor, #EM_REPLACESEL, #True, @"")
+     
+    Next
   EndIf
+  Protected lineCountAfterDeletion.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
+    Protected linesDeleted.l = lineCountBeforeDeletion - lineCountAfterDeletion
+    Debug "Lines actually deleted: " + Str(linesDeleted) + " (before: " + Str(lineCountBeforeDeletion) + ", after: " + Str(lineCountAfterDeletion) + ")"
+    
 
+  
   ; Get line count BEFORE append (after deletion if any)
-  Protected oldLineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
-  Debug "AddOutputLines: Line count before append: " + Str(oldLineCount)
-
-  ; Check if at scroll bottom
-  Protected wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
+  Protected oldLineCount.l = lineCountAfterDeletion
 
   ; Append new lines at the end
   Protected textLen.l = SendMessage_(hEditor, #WM_GETTEXTLENGTH, 0, 0)
-  Debug "AddOutputLines: Text length before append: " + Str(textLen)
   SendMessage_(hEditor, #EM_SETSEL, textLen, textLen) ; Select end of text
   SendMessage_(hEditor, #EM_GETSEL, @startSel, @endSel)
-  Debug "AddOutputLines: Selection before append: Start = " + Str(startSel) + ", End = " + Str(endSel)
   
-  Protected appendText.s = Chr(13) + Chr(10) + lines ; Use #CRLF$ for Windows Rich Edit
-  Result = SendMessage_(hEditor, #EM_REPLACESEL, #True, @appendText)
-  Debug "AddOutputLines: Appended text: '" + appendText + "', Result: " + Str(Result)
-  If Result = 0
-    Debug "AddOutputLines: EM_REPLACESEL failed, Last error: " + Str(GetLastError_())
+  ; Reset character format to match current theme before inserting
+  Protected cf.CHARFORMAT2
+  cf\cbSize = SizeOf(CHARFORMAT2)
+  cf\dwMask = #CFM_COLOR
+  cf\dwEffects = 0  ; No special effects, we'll set explicit color
+  ; Get the appropriate text color based on theme
+  If IsDarkModeActiveCached
+    cf\crTextColor = RGB(255, 255, 255)  ; White for dark theme
+  Else
+    cf\crTextColor = RGB(0, 0, 0)  ; Black for light theme
   EndIf
+  SendMessage_(hEditor, #EM_SETCHARFORMAT, #SCF_SELECTION, @cf)
+  
+  Protected appendText.s = Chr(13) + Chr(10) + lines ; Use CRLF for Windows Rich Edit
+  Result = SendMessage_(hEditor, #EM_REPLACESEL, #True, @appendText)
 
   ; Verify text length after append
   Protected newTextLen.l = SendMessage_(hEditor, #WM_GETTEXTLENGTH, 0, 0)
-  Debug "AddOutputLines: Text length after append: " + Str(newTextLen)
 
   ; Calculate number of new lines using editor's line count
   Protected newLineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
@@ -2682,22 +2710,53 @@ Procedure AddOutputLines(index, editorGadgetID, lines.s)
   If lines = "" And newLinesCount = 1 ; If only empty newline added
     newLinesCount = 0
   EndIf
-  Debug "AddOutputLines: New lines count: " + Str(newLinesCount)
 
   ; Restore read-only if it was set
   If isReadOnly
     SendMessage_(hEditor, #EM_SETREADONLY, #True, 0)
-    Debug "AddOutputLines: Restored read-only"
   EndIf
 
   ; Color the new lines (or all text if newLinesCount = 0)
   SetEditorTextColor(index, newLinesCount)
-
-  ; Restore scroll position if needed
-  If wasAtScrollBottom
-    ScrollEditorToBottom(editorGadgetID)
-  EndIf
   
+    ; Get line height for scroll adjustment
+    Protected firstCharIndex.l = SendMessage_(hEditor, #EM_LINEINDEX, 0, 0)
+    Protected pt.POINT
+    SendMessage_(hEditor, #EM_POSFROMCHAR, @pt, firstCharIndex)
+    Protected firstLineY.l = pt\y
+    Protected secondCharIndex.l = SendMessage_(hEditor, #EM_LINEINDEX, 1, 0)
+    SendMessage_(hEditor, #EM_POSFROMCHAR, @pt, secondCharIndex)
+    Protected secondLineY.l = pt\y
+    Protected lineHeight.l = secondLineY - firstLineY
+    Debug "Calculated line height: " + Str(lineHeight)
+  
+  
+  ; Restore scroll position based on where user was
+  Debug "wasAtScrollBottom: " + Str(wasAtScrollBottom)
+  If wasAtScrollBottom
+    Debug "Scrolling to bottom -"+ Str(lineHeight * linesDeleted)
+    ScrollEditorToBottom(editorGadgetID)
+  Else
+        Debug "Scrolling to "+Str(scrollPos\y)+" -"+ Str(lineHeight * linesDeleted)
+        
+;         indicateHeight = linesDeleted
+;         If indicateHeight>lineHeight*5
+;           indicateHeight = lineHeight*5
+;         EndIf 
+          
+          
+        
+  scrollPos\y  =   scrollPos\y - (lineHeight * linesDeleted) ; +  indicateHeight ; indicateHeight to indicate someting happened
+  If scrollPos\y < 0
+    scrollPos\y = 0
+  EndIf
+    Debug "Restoring scroll position: X=" + Str(scrollPos\x) + ", Y=" + Str(scrollPos\y)
+    SendMessage_(hEditor, #EM_SETSCROLLPOS, 0, @scrollPos)
+  EndIf
+  ; Re-enable redraw and force repaint
+  SendMessage_(hEditor, #WM_SETREDRAW, #True, 0)
+  ;InvalidateRect_(hEditor, #Null, #True)
+  UpdateWindow_(hEditor)
   
 CompilerElse
   text.s = GetGadgetText(editorGadgetID)
@@ -2709,19 +2768,14 @@ CompilerElse
   wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
   
   SetGadgetText(editorGadgetID,text+Chr(10)+lines)
-  SetEditorTextColor( index,#True)
+  SetEditorTextColor(index,#True)
 
-  
   If wasAtScrollBottom
     ScrollEditorToBottom(editorGadgetID)
   EndIf
   CompilerEndIf
   
-  
-  
 EndProcedure
-
-
 
 
 
@@ -2965,7 +3019,20 @@ Procedure CloseLogWindow()
   Next
 EndProcedure 
 
+#PFM_LINESPACING = $00000100
+#EM_SETPARAFORMAT = $447
+#EM_GETPARAFORMAT = $43D
 
+#EDITOR_LINE_HEIGHT = 23
+
+Procedure SetFixedLineHeight(hEditor, heightPixels)
+  Protected pf.PARAFORMAT2
+  pf\cbSize = SizeOf(PARAFORMAT2)
+  pf\dwMask = #PFM_LINESPACING
+  pf\bLineSpacingRule = 4 ; exact line spacing
+  pf\dyLineSpacing = heightPixels * 15  ; 1 pixel ≈ 15 twips
+ Debug SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
+EndProcedure
 
 Procedure ShowLogs(index)
   
@@ -3022,7 +3089,7 @@ Procedure ShowLogs(index)
     containerLogEditorID(index) = editorID
     LoadLibrary_("Msftedit.dll")
     SendMessage_(GadgetID(editorID), #EM_SETTEXTMODE, #TM_RICHTEXT, 0)
-    
+    SetFixedLineHeight(GadgetID(editorID), #EDITOR_LINE_HEIGHT)
     ; Enable anti-aliasing with cross-platform font selection
     CompilerSelect #PB_Compiler_OS
       CompilerCase #PB_OS_Windows
@@ -3257,7 +3324,7 @@ Procedure StartApp()
             Case 23
               pattern$ = GetGadgetText(20)
               If pattern$ <> ""
-                AddPattern(currentContainerIndex, pattern$, patCol)
+                AddPattern(currentContainerIndex, pattern$, patCol, GetGadgetState(26))
                 UpdatePatternList(currentContainerIndex)
                 If IsWindow(4)
                   SetActiveWindow(4)
@@ -3268,6 +3335,8 @@ Procedure StartApp()
               EndIf
             Case 25
               closeWindow = #True
+             Case 27
+              SetGadgetState(26,1-GetGadgetState(26))
           EndSelect    
         EndIf  
         If closeWindow
@@ -3479,8 +3548,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2480
-; FirstLine = 2463
+; CursorPosition = 3326
+; FirstLine = 3310
 ; Folding = ----------------
 ; Optimizer
 ; EnableThread
