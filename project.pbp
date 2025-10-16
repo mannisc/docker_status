@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.21 (Windows - x64)">
+  <section name="config">
+    <options closefiles="1" openmode="0" name="Docker Status"/>
+  </section>
+  <section name="data">
+    <explorer view="" pattern="0"/>
+    <log show="1"/>
+    <lastopen date="2025-10-16 23:48" user="mschm" host="MANFRED-IDEAPAD"/>
+  </section>
+  <section name="files">
+    <file name="main.pb">
+      <config load="1" scan="1" panel="1" warn="1" lastopen="0" sortindex="0" panelstate="+"/>
+      <fingerprint md5="4262894cced72c57b911f848c5a17749"/>
+    </file>
+  </section>
+  <section name="targets">
+    <target name="Default Target" enabled="1" default="1">
+      <inputfile value=""/>
+      <outputfile value=""/>
+      <options xpskin="1" dpiaware="1" debug="1" optimizer="0"/>
+    </target>
+  </section>
+</project>
