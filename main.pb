@@ -276,10 +276,10 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   #CDDS_PREPAINT = 1
   #CDDS_ITEMPREPAINT = $10001
   
-  Global NewMap ListIconDarkThemeProcs()
+  Global NewMap ListIconThemeProcs()
   
   
-  Procedure ListIconDarkThemeProc(hwnd, msg, wParam, lParam)
+  Procedure ListIconThemeProc(hwnd, msg, wParam, lParam)
     
     Protected bg 
     Protected fg 
@@ -310,7 +310,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       EndSelect
     EndIf
     
-    oldListViewProc = ListIconDarkThemeProcs(Str(hwnd))
+    oldListViewProc = ListIconThemeProcs(Str(hwnd))
     
     
     ; Call original window procedure
@@ -321,7 +321,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     CompilerEndIf
   EndProcedure
   
-  Procedure ApplyDarkListIconTheme(listHwnd)
+  Procedure ApplyListIconTheme(listHwnd)
     Protected bg 
     Protected fg 
     If IsDarkModeActiveCached
@@ -347,18 +347,18 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       ; FIRST: GET the old window proc
       ; SECOND: SET the new window proc
       CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
-        If FindMapElement(ListIconDarkThemeProcs(),Str(listHwnd)) = 0
-          ListIconDarkThemeProcs(Str(listHwnd)) = GetWindowLongPtr_(listHwnd, #GWL_WNDPROC)
+        If FindMapElement(ListIconThemeProcs(),Str(listHwnd)) = 0
+          ListIconThemeProcs(Str(listHwnd)) = GetWindowLongPtr_(listHwnd, #GWL_WNDPROC)
         EndIf 
         ;oldListViewProc = GetWindowLongPtr_(listHwnd, #GWL_WNDPROC)
-        SetWindowLongPtr_(listHwnd, #GWL_WNDPROC, @ListIconDarkThemeProc())
+        SetWindowLongPtr_(listHwnd, #GWL_WNDPROC, @ListIconThemeProc())
       CompilerElse
-        If FindMapElement(ListIconDarkThemeProcs(),Str(listHwnd)) = 0
-          ListIconDarkThemeProcs(listHwnd) =  GetWindowLong_(listHwnd, #GWL_WNDPROC)
+        If FindMapElement(ListIconThemeProcs(),Str(listHwnd)) = 0
+          ListIconThemeProcs(listHwnd) =  GetWindowLong_(listHwnd, #GWL_WNDPROC)
         EndIf 
         
         ; oldListViewProc = GetWindowLong_(listHwnd, #GWL_WNDPROC)
-        SetWindowLong_(listHwnd, #GWL_WNDPROC, @ListIconDarkThemeProc())
+        SetWindowLong_(listHwnd, #GWL_WNDPROC, @ListIconThemeProc())
       CompilerEndIf
       
       
@@ -367,10 +367,10 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   EndProcedure
   
   
-  Global NewMap StaticControlDarkThemeProcs()
+  Global NewMap StaticControlThemeProcs()
   
   Procedure StaticControlThemeProc(hwnd, msg, wParam, lParam)
-    Protected oldProc = StaticControlDarkThemeProcs(Str(hwnd))
+    Protected oldProc = StaticControlThemeProcs(Str(hwnd))
     Protected fg, bg
     
     If IsDarkModeActiveCached
@@ -1018,10 +1018,10 @@ EndProcedure
             Protected oldProc = SetWindowLong_(hWnd, #GWL_WNDPROC, @StaticControlThemeProc())
           CompilerEndIf
           
-          StaticControlDarkThemeProcs(Str(hWnd)) = oldProc
+          StaticControlThemeProcs(Str(hWnd)) = oldProc
           
         Case "syslistview32"
-          ApplyDarkListIconTheme(hWnd)
+          ApplyListIconTheme(hWnd)
           
         Case  "combobox", "listbox", "systreeview32", "msctls_trackbar32"; "edit"
           ApplyGadgetTheme(hWnd)
@@ -2445,7 +2445,6 @@ Procedure StartDockerFollow(index)
   
   ProgramID =  RunProgram(dockerExecutable$, "inspect -f {{.State.Running}} " + container$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
 
-  
   If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
     If containerStarted(index)
       StopDockerFollow(index)
@@ -2458,9 +2457,13 @@ Procedure StartDockerFollow(index)
     dataRead = #False ; Reset for this iteration
     Repeat
       line.s = ReadProgramError(ProgramID) 
-      If line <> ""
-        dataRead = #True
+      If Trim(line) <> ""
+        StopDockerFollow(index)
+        MessageRequester(#APP_TITLE, line)
+        ProcedureReturn 
       EndIf
+      
+      
     Until line = "" ; Loop until ReadProgramError returns an empty string
     
     programOutput = AvailableProgramOutput(ProgramID)
@@ -2469,7 +2472,6 @@ Procedure StartDockerFollow(index)
       
       
       line = ReadProgramString(ProgramID)    
-      
       If FindString(line,"false")>0
         StopDockerFollow(index)
         MessageRequester(#APP_TITLE, "Container '" + container$ + "' is not running.")
@@ -3548,8 +3550,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 3326
-; FirstLine = 3310
+; CursorPosition = 2695
+; FirstLine = 2692
 ; Folding = ----------------
 ; Optimizer
 ; EnableThread
