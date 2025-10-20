@@ -373,7 +373,57 @@ Procedure CreateWindowIcon(winID,index)
 EndProcedure
 
 
+Procedure CreateMonitorIconWin(index, innerCol, bgCol)
+  
+  ;CreateInfoImage(index, innerCol, bgCol)
+  If infoImageID(index) 
+    DestroyIcon_(infoImageID(index) )
+  EndIf 
+  infoImageID(index) = CreateCircularHIcon(index)
+  
+  If trayID(index) = 0
+    trayID(index) = index + 1
+    AddSysTrayIcon(trayID(index), WindowID(0), infoImageID(index))
+    SysTrayIconToolTip(trayID(index), tooltip(index))
+    CreatePopupImageMenu(1000+index, #PB_Menu_SysTrayLook)
+    MenuItem(1000+index*10, "Open")
+    MenuItem(1000+index*10+1, "Logs")
+    MenuBar()
+    MenuItem(1000+index*10+2, "Exit")
+    SysTrayIconMenu(trayID(index), MenuID(1000+index))   
+  Else
+    ChangeSysTrayIcon(trayID(index), infoImageID(index))
+  EndIf
+  
+  
+  Protected img = CreateImage(#PB_Any, 32, 32, 32, bgCol)
+  If img
+    StartVectorDrawing(ImageVectorOutput(img))
+    
+    ; Fill entire background first
+    VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
+    FillVectorOutput()
+    
+    ; Draw colored rectangle behind the arrow
+    VectorSourceColor(RGBA(Red(containerStatusColor(index)), Green(containerStatusColor(index)), Blue(containerStatusColor(index)), 255))
+    
+    ; Draw circle fill
+    AddPathEllipse(15, 15,14,14)      ; width=16, height=16
+    FillPath()
+    
+    StopVectorDrawing()
+    
+    infoImageRunningID(index) = img
+  EndIf
+  
 
+  ForEach logWindows()
+    If logWindows()\containerIndex = index
+      CreateWindowIcon(logWindows()\winID,index)
+      Break
+    EndIf
+  Next
+EndProcedure
 
 
 CompilerEndIf
@@ -383,9 +433,9 @@ CompilerEndIf
 
 
 
-
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 375
+; FirstLine = 368
 ; Folding = --
 ; EnableXP
 ; DPIAware
