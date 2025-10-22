@@ -222,8 +222,8 @@ Procedure WindowCallback(hwnd, msg, wParam, lParam)
           ProcedureReturn GetStockObject_(#NULL_BRUSH)
         EndIf
     EndSelect
+    ProcedureReturn #PB_ProcessPureBasicEvents
   CompilerEndIf 
-  ProcedureReturn #PB_ProcessPureBasicEvents
 EndProcedure
 
 
@@ -410,54 +410,10 @@ EndProcedure
 
 Procedure CreateMonitorIcon(index, innerCol, bgCol)
   
-  ;CreateInfoImage(index, innerCol, bgCol)
-  If infoImageID(index) 
-    DestroyIcon_(infoImageID(index) )
-  EndIf 
-  infoImageID(index) = CreateCircularHIcon(index)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    CreateMonitorIconWin(index, innerCol, bgCol)
+  CompilerEndIf
   
-  If trayID(index) = 0
-    trayID(index) = index + 1
-    AddSysTrayIcon(trayID(index), WindowID(0), infoImageID(index))
-    SysTrayIconToolTip(trayID(index), tooltip(index))
-    CreatePopupImageMenu(1000+index, #PB_Menu_SysTrayLook)
-    MenuItem(1000+index*10, "Open")
-    MenuItem(1000+index*10+1, "Logs")
-    MenuBar()
-    MenuItem(1000+index*10+2, "Exit")
-    SysTrayIconMenu(trayID(index), MenuID(1000+index))   
-  Else
-    ChangeSysTrayIcon(trayID(index), infoImageID(index))
-  EndIf
-  
-  
-  Protected img = CreateImage(#PB_Any, 32, 32, 32, bgCol)
-  If img
-    StartVectorDrawing(ImageVectorOutput(img))
-    
-    ; Fill entire background first
-    VectorSourceColor(RGBA(Red(bgCol), Green(bgCol), Blue(bgCol), 255))
-    FillVectorOutput()
-    
-    ; Draw colored rectangle behind the arrow
-    VectorSourceColor(RGBA(Red(containerStatusColor(index)), Green(containerStatusColor(index)), Blue(containerStatusColor(index)), 255))
-    
-    ; Draw circle fill
-    AddPathEllipse(15, 15,14,14)      ; width=16, height=16
-    FillPath()
-    
-    StopVectorDrawing()
-    
-    infoImageRunningID(index) = img
-  EndIf
-  
-  
-  ForEach logWindows()
-    If logWindows()\containerIndex = index
-      CreateWindowIcon(logWindows()\winID,index)
-      Break
-    EndIf
-  Next
 EndProcedure
 
 ; -------------------- SET LIST ITEM STARTED --------------------
@@ -586,7 +542,11 @@ Procedure RemoveMonitor(index)
   SaveSettings()
 EndProcedure
 
-
+Procedure ApplySingleColumnListIcon(listHwnd)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    ApplySingleColumnListIconWin(listHwnd)
+  CompilerEndIf
+EndProcedure 
 
 ; -------------------- PATTERNS --------------------
 Procedure UpdatePatternButtonStates()
@@ -741,7 +701,7 @@ EndProcedure
 Procedure EditPatternDialog(index, selIndex)
   pattern.s = patterns(index, selIndex)
   patCol = patternColor(index, selIndex)
-  If OpenWindow(3, 0, 0, 380, 170, "Edit Status Filter", #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_Invisible)
+  If OpenWindow(3, 0, 0, 380, 170, "Edit Status Filter Rules", #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_Invisible)
     StringGadget(30, 10, 10, 360, 24, pattern)
     SetActiveGadget(30)
     TextGadget(31, 10, 53, 100, 24, "Pattern Color:")
@@ -780,8 +740,8 @@ Procedure EditPatternsDialog(index)
   If index < 0 Or index >= containerCount
     ProcedureReturn
   EndIf
-  If OpenWindow(4,150,150,420,450,"Edit Status Filter",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
-    ListIconGadget(40,10, 10, 300, 430,"Status Log Filter",295,#PB_ListIcon_FullRowSelect|#PB_ListIcon_AlwaysShowSelection):ApplySingleColumnListIcon(GadgetID(40))
+  If OpenWindow(4,150,150,420,450,"Edit Status Filter Rules",#PB_Window_SystemMenu | #PB_Window_ScreenCentered|#PB_Window_Invisible)
+    ListIconGadget(40,10, 10, 300, 430,"Status Log Filter Rules",295,#PB_ListIcon_FullRowSelect|#PB_ListIcon_AlwaysShowSelection):ApplySingleColumnListIcon(GadgetID(40))
     ButtonGadget(41, 325, 10, 80, 24, "Add")
     ButtonGadget(43, 325, 40, 80, 24, "Remove")
     ButtonGadget(42, 325, 80, 80, 24, "Edit")
@@ -839,6 +799,7 @@ Procedure.s GetDockerExcutable()
 EndProcedure
 
 
+
 ; -------------------- STOP DOCKER FOLLOW --------------------
 Procedure StopDockerFollow(index)
   If notificationRunningWinID <>0
@@ -859,10 +820,10 @@ Procedure StopDockerFollow(index)
   EndIf
   dockerProgramID(index) = 0
   monitorConfiguration(index)\currentCommand = 0
-  RemoveOverlayIcon(WindowID(0))
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows:RemoveOverlayIcon(WindowID(0)):CompilerEndIf
   ForEach logWindows()
     If logWindows()\containerIndex = index
-      RemoveOverlayIcon(WindowID(logWindows()\winID))
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows:RemoveOverlayIcon(WindowID(logWindows()\winID)):CompilerEndIf
       CloseWindow(logWindows()\winID)
       DeleteElement(logWindows())
       Break
@@ -1991,7 +1952,7 @@ Procedure UpdateMonitorIcon(index, matchColor)
   Next
   
   
-  SetOverlayIcon(WindowID(0),index)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetOverlayIcon(WindowID(0),index):CompilerEndIf
 EndProcedure
 
 Procedure OnMatch(index, patternIndex , line.s, hideNotification = #False)
@@ -2227,7 +2188,7 @@ Procedure AddOutputLines(index, editorGadgetID, lines.s)
     wasAtScrollBottom = IsAtScrollBottom(editorGadgetID)
     
     SetGadgetText(editorGadgetID,text+Chr(10)+lines)
-    SetEditorTextColor(index,#True)
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetEditorTextColor(index,#True):CompilerEndIf
     
     If wasAtScrollBottom
       ScrollEditorToBottom(editorGadgetID)
@@ -2524,26 +2485,13 @@ Procedure CloseLogWindow()
   Next
 EndProcedure 
 
-#PFM_LINESPACING = $00000100
-#EM_SETPARAFORMAT = $447
-#EM_GETPARAFORMAT = $43D
 
-#EDITOR_LINE_HEIGHT = 22
-
-Procedure SetFixedLineHeight(hEditor, heightPixels)
-  Protected pf.PARAFORMAT2
-  pf\cbSize = SizeOf(PARAFORMAT2)
-  pf\dwMask = #PFM_LINESPACING
-  pf\bLineSpacingRule = 4 ; exact line spacing
-  pf\dyLineSpacing = heightPixels * 15  ; 1 pixel ≈ 15 twips
-  Debug SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
-EndProcedure
 
 Procedure ShowLogs(index)
   
   ForEach logWindows()
     If logWindows()\containerIndex = index
-      SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex):CompilerEndIf
       
       If GetWindowState(logWindows()\winId) = #PB_Window_Minimize Or GetWindowState(logWindows()\winId) = #PB_Window_Maximize
         SetWindowState(logWindows()\winId,#PB_Window_Normal) 
@@ -2594,9 +2542,11 @@ Procedure ShowLogs(index)
       editorID = EditorGadget(#PB_Any, 0, 0,  containterMetaData(index)\logWindowW, containterMetaData(index)\logWindowH, #PB_Editor_ReadOnly | #PB_Editor_WordWrap)
     CompilerEndIf 
     containerLogEditorID(index) = editorID
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     LoadLibrary_("Msftedit.dll")
     SendMessage_(GadgetID(editorID), #EM_SETTEXTMODE, #TM_RICHTEXT, 0)
     SetFixedLineHeight(GadgetID(editorID), #EDITOR_LINE_HEIGHT)
+    CompilerEndIf
     ; Enable anti-aliasing with cross-platform font selection
     CompilerSelect #PB_Compiler_OS
       CompilerCase #PB_OS_Windows
@@ -2622,13 +2572,14 @@ Procedure ShowLogs(index)
     BindEvent(#PB_Event_MoveWindow, @MoveLogWindow(),winID)
     
     SetGadgetText(editorID,text$)
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetEditorTextColor( index):CompilerEndIf
     
     ScrollEditorToBottom(editorID)
     
     ApplyTheme(winID)
     Repeat :Delay(1): Until WindowEvent() = 0
     ShowWindowFadeIn(winID)
-    CreateWindowIcon(winID,index)
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows:CreateWindowIcon(winID,index):CompilerEndIf
     UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
     
     ScrollEditorToBottom(editorID)
@@ -2642,16 +2593,17 @@ EndProcedure
 
 Procedure StartApp()
   
-  IsDarkModeActive()
-  SetWindowCallback(@WindowCallback())
-  
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    IsDarkModeActive()
+    SetWindowCallback(@WindowCallback())
+  CompilerEndIf
   If OpenWindow(0,0,0,420,300,#APP_TITLE,#PB_Window_SystemMenu  | #PB_Window_MinimizeGadget | #PB_Window_ScreenCentered | #PB_Window_Invisible)
     ; Gadgets
     ListIconGadget(0, 10, 10, 300, 280,"Container",295,#PB_ListIcon_FullRowSelect):ApplySingleColumnListIcon(GadgetID(0))
     ButtonGadget(1, 325, 10, 80, 24, "Add")
     ButtonGadget(6, 325, 40, 80, 24, "Edit")
     ButtonGadget(2, 325, 70, 80, 24, "Remove")
-    ButtonGadget(5, 325, 110, 80, 24, "Status Filter")
+    ButtonGadget(5, 325, 110, 80, 24, "Rules")
     ButtonGadget(3, 325, 150, 80, 24, "Start")
     ButtonGadget(4, 325, 180, 80, 24, "Stop")
     
@@ -2709,7 +2661,7 @@ Procedure StartApp()
                 Select menuId
                   Case 0
                     HideWindow(0,#False)
-                    SetOverlayIcon(WindowID(0),menuContainerIndex)
+                    CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetOverlayIcon(WindowID(0),menuContainerIndex):CompilerEndIf
                     
                   Case 1
                     ShowLogs(menuContainerIndex)
@@ -2885,7 +2837,7 @@ Procedure StartApp()
               
               If containerStarted(currentContainerIndex)
                 HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
-                SetEditorTextColor( currentContainerIndex)
+                CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetEditorTextColor( currentContainerIndex):CompilerEndIf
                 
               EndIf 
               
@@ -2996,7 +2948,7 @@ Procedure StartApp()
         If Event =  #PB_Event_ActivateWindow  
           ForEach logWindows()
             If logWindows()\winID = Window
-              SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex)
+              CompilerIf #PB_Compiler_OS = #PB_OS_Windows:SetOverlayIcon(WindowID(logWindows()\winID),logWindows()\containerIndex):CompilerEndif
               Break;
             EndIf
           Next
@@ -3043,11 +2995,10 @@ StartApp()
 
 
 
-
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 889
-; FirstLine = 888
-; Folding = -----------
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 689
+; FirstLine = 685
+; Folding = ------------
 ; Optimizer
 ; EnableThread
 ; EnableXP

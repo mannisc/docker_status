@@ -1,7 +1,24 @@
 ﻿
-; Dark Theme -----------------------------------------------------------------------
+; Theme etc-----------------------------------------------------------------------
 
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  
+  
+  #PFM_LINESPACING = $00000100
+  #EM_SETPARAFORMAT = $447
+  #EM_GETPARAFORMAT = $43D
+  
+  #EDITOR_LINE_HEIGHT = 23
+  
+  Procedure SetFixedLineHeight(hEditor, heightPixels)
+    Protected pf.PARAFORMAT2
+    pf\cbSize = SizeOf(PARAFORMAT2)
+    pf\dwMask = #PFM_LINESPACING
+    pf\bLineSpacingRule = 4 ; exact line spacing
+    pf\dyLineSpacing = heightPixels * 15  ; 1 pixel ≈ 15 twips
+    Debug SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
+  EndProcedure
+  
   
   Global themeBgBrush 
   
@@ -133,7 +150,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   
   
   
-  Procedure ApplySingleColumnListIcon(listHwnd)
+  Procedure ApplySingleColumnListIconWin(listHwnd)
     
     
     ; 1. Ensure only one column exists (index 0)
@@ -943,9 +960,8 @@ EndProcedure
   EndProcedure
   
 CompilerEndIf
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 926
-; FirstLine = 917
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 22
 ; Folding = -----
 ; EnableXP
 ; DPIAware
