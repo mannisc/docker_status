@@ -36,7 +36,25 @@ Structure ContainterMetaData
   CompilerEndIf
 EndStructure
 
+Enumeration MonitorType
+  #COMMAND
+  #CONTAINER
+EndEnumeration
+
+Structure MonitorConfiguration
+  type.i  ; MonitorType Enum
+  content.s ;container or commands
+  commandTransformed.s
+  currentCommand.i
+  waitingForInput.b
+EndStructure
+
+Global Dim monitorConfiguration.MonitorConfiguration(#MAX_CONTAINERS-1)
+
+
+
 Global containerCount.l = 0
+
 Global Dim containerName.s(#MAX_CONTAINERS-1)
 Global Dim bgColor.l(#MAX_CONTAINERS-1)
 Global Dim innerColor.l(#MAX_CONTAINERS-1)
@@ -74,6 +92,42 @@ EndEnumeration
 IncludeFile "utils.pb"
 IncludeFile "winTheme.pb"
 
+
+
+Procedure.s ReadProgramOutputBytes(ProgramID, length)
+  Protected buffer
+  Protected bytesRead.l
+  
+  ; Allocate a memory buffer
+  buffer = AllocateMemory(length)
+  If buffer = 0
+    ProcedureReturn ""
+  EndIf
+  
+  ; Read data from program output
+  bytesRead = ReadProgramData(ProgramID, buffer, length)
+  
+  ; Convert buffer to string
+  ProcedureReturn PeekS(buffer, bytesRead, #PB_UTF8   )
+EndProcedure
+
+Procedure IsWaitingForInput(output.s)
+  foundPrompt = #False
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    If FindString(output, ">", #PB_String_NoCase) > 0
+      If Mid(Trim(output),Len(Trim(output)),1) = ">"
+        ; Check if it looks like a Windows path (contains ":" or "\")
+        If FindString(output, ":\", #PB_String_NoCase) > 0 Or 
+           FindString(output, "\", #PB_String_NoCase) > 0
+          foundPrompt = #True
+        EndIf
+      EndIf
+    EndIf
+  CompilerElse
+    foundPrompt = #True
+  CompilerEndIf
+  ProcedureReturn foundPrompt
+EndProcedure
 
 
 ; Apply Theme
@@ -146,7 +200,7 @@ Procedure WindowCallback(hwnd, msg, wParam, lParam)
           EndIf
         EndIf  
       Case #WM_CTLCOLORBTN  ; For checkboxes and buttons
-        ; Set text color based on current theme
+                            ; Set text color based on current theme
         SetTextColor_(wParam, fg)
         SetBkMode_(wParam, #TRANSPARENT)
         ; Return parent's background brush
@@ -157,7 +211,7 @@ Procedure WindowCallback(hwnd, msg, wParam, lParam)
           ProcedureReturn GetStockObject_(#NULL_BRUSH)
         EndIf
       Case #WM_CTLCOLORSTATIC  ; For static text
-        ; Set text color based on current theme (not just dark mode!)
+                               ; Set text color based on current theme (not just dark mode!)
         SetTextColor_(wParam, fg)
         SetBkMode_(wParam, #TRANSPARENT)
         ; Return parent's background brush
@@ -310,7 +364,7 @@ Procedure ShowSystrayRunningNotification(index)
     ApplyTheme(winID)
     Repeat :Delay(1): Until WindowEvent() = 0
     ShowWindowFadeIn(winID)
-   
+    
   EndIf
 EndProcedure
 
@@ -397,7 +451,7 @@ Procedure CreateMonitorIcon(index, innerCol, bgCol)
     infoImageRunningID(index) = img
   EndIf
   
-
+  
   ForEach logWindows()
     If logWindows()\containerIndex = index
       CreateWindowIcon(logWindows()\winID,index)
@@ -804,6 +858,7 @@ Procedure StopDockerFollow(index)
     dockerProgramID(index) = 0
   EndIf
   dockerProgramID(index) = 0
+  monitorConfiguration(index)\currentCommand = 0
   RemoveOverlayIcon(WindowID(0))
   ForEach logWindows()
     If logWindows()\containerIndex = index
@@ -827,7 +882,1004 @@ Procedure StopDockerFollow(index)
   containerStartedTime(index) = ElapsedMilliseconds()
 EndProcedure
 ; -------------------- START DOCKER FOLLOW --------------------
+
+
+
+; Transform multiline commands into optimized format
+Procedure.s TransformCommand(commandString.s)
+  Protected result.s = ""
+  Protected commandCount.i
+  Protected firstCommand.s, command.s
+  Protected insideDocker.i = #False
+  Protected dockerCommand.s = ""
+  Protected containerName.s = ""
+  Protected shellType.s = ""
+  Protected shellCommands.s = ""
+  Protected postDockerCommands.s = ""
+  Protected chainOperator.s
+  Protected i.i
+  Protected hasCtrlC.i = #False
+  
+  commandCount = CountString(commandString, Chr(10)) + 1
+  
+  ; Single command - return as is
+  If commandCount = 1
+    ProcedureReturn Trim(commandString)
+  EndIf
+  
+  ; Check if there's a Ctrl+C anywhere - if so, don't transform (needs interactive mode)
+  If FindString(commandString, Chr(3)) > 0
+    hasCtrlC = #True
+    Debug "Ctrl+C detected - skipping transformation, using interactive mode"
+    ProcedureReturn commandString ; Return unchanged for interactive processing
+  EndIf
+  
+  ; Parse commands line by line
+  For i = 1 To commandCount
+    command = Trim(StringField(commandString, i, Chr(10)))
+    
+    ; Check for Ctrl+C (ASCII 3), SHOULD NOT WORK
+    If command = Chr(3) Or FindString(command, Chr(3)) > 0
+      ; Ctrl+C exits the docker session
+      If insideDocker
+        insideDocker = #False
+      EndIf
+      Continue ; Skip processing this line
+    EndIf
+    
+    If command <> ""
+      
+      ; Check if entering docker exec
+      If FindString(command, "docker exec", 1, #PB_String_NoCase) > 0
+        insideDocker = #True
+        dockerCommand = command
+        
+        ; Extract container name (assumes format: docker exec [flags] container-name [shell])
+        ; Remove docker exec and flags
+        tempCmd.s = command
+        tempCmd = ReplaceString(tempCmd, "docker exec", "", #PB_String_NoCase, 1, 1)
+        tempCmd = Trim(tempCmd)
+        
+        ; Remove common flags
+        tempCmd = ReplaceString(tempCmd, "-it", "")
+        tempCmd = ReplaceString(tempCmd, "-i", "")
+        tempCmd = ReplaceString(tempCmd, "-t", "")
+        tempCmd = ReplaceString(tempCmd, "-d", "")
+        tempCmd = Trim(tempCmd)
+        
+        ; First word should be container name
+        spacePos = FindString(tempCmd, " ")
+        If spacePos > 0
+          containerName = Left(tempCmd, spacePos - 1)
+          shellType = Trim(Mid(tempCmd, spacePos + 1))
+        Else
+          containerName = tempCmd
+          shellType = "/bin/sh" ; default
+        EndIf
+        
+        ; Detect shell type from command or use default
+        If shellType = ""
+          shellType = "/bin/sh"
+        ElseIf FindString(shellType, "bash", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/bash"
+        ElseIf FindString(shellType, "sh", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/sh"
+        ElseIf FindString(shellType, "ash", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/ash"
+        ElseIf FindString(shellType, "dash", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/dash"
+        Else
+          ; If not recognized, keep as is but default to /bin/sh for safety
+          If Left(shellType, 1) <> "/"
+            shellType = "/bin/sh"
+          EndIf
+        EndIf
+        
+        ; Determine chain operator based on shell type
+        ; All POSIX shells support &&
+        chainOperator = " && "
+        
+        ; Check if exiting docker (exit command)
+      ElseIf insideDocker And (LCase(command) = "exit" Or FindString(LCase(command), "exit ", 1) = 1)
+        insideDocker = #False
+        ; Don't add exit to shell commands - it will terminate naturally
+        ; Any commands after this will go to postDockerCommands
+        
+        ; Regular command
+      Else
+        If insideDocker
+          ; Add to shell commands
+          If shellCommands <> ""
+            shellCommands + chainOperator
+          EndIf
+          shellCommands + command
+        Else
+          ; Command outside docker (before or after)
+          If dockerCommand = ""
+            ; Before docker - add to result
+            If result <> ""
+              result + Chr(10)
+            EndIf
+            result + command
+          Else
+            ; After docker - add to post commands
+            If postDockerCommands <> ""
+              postDockerCommands + Chr(10)
+            EndIf
+            postDockerCommands + command
+          EndIf
+        EndIf
+      EndIf
+      
+    EndIf
+  Next
+  
+  ; Build final command
+  If dockerCommand <> ""
+    ; We have docker exec commands
+    If result <> ""
+      result + Chr(10)
+    EndIf
+    
+    If shellCommands <> ""
+      ; Build optimized docker exec command with -i flag and -c
+      result + "docker exec -i " + containerName + " " + shellType + " -c " + Chr(34) + shellCommands + Chr(34)
+    Else
+      ; Just the docker exec without commands (interactive shell)
+      result + "docker exec -i " + containerName + " " + shellType
+    EndIf
+    
+    ; Add post-docker commands
+    If postDockerCommands <> ""
+      result + Chr(10) + postDockerCommands
+    EndIf
+  EndIf
+  
+  ProcedureReturn result
+EndProcedure
+
+; Wait for cmd.exe prompt to appear (indicates command finished)
+Procedure WaitForPrompt(ProgramID, timeoutMs.l = 300000) ; 5 minute timeout default
+  Protected startTime.q = ElapsedMilliseconds()
+  Protected line.s
+  Protected output.s
+  Protected lastOutputTime.q = ElapsedMilliseconds()
+  Protected idleTime.l = 2000 ; Consider prompt ready after 2 seconds of no output
+  Protected foundPrompt.i = #False
+  
+  Debug "WaitForPrompt: Starting to wait for prompt..."
+  
+  Repeat
+    ; Read all available output
+    dataAvailable.i = #False
+    
+    ; Read stderr
+    Repeat
+      line = ReadProgramError(ProgramID)
+      If line <> ""
+        dataAvailable = #True
+        lastOutputTime = ElapsedMilliseconds()
+      EndIf
+    Until line = ""
+    
+    ; Read stdout
+    If AvailableProgramOutput(ProgramID) > 0
+      line = ReadProgramString(ProgramID)
+      If line <> ""
+        output = line
+        dataAvailable = #True
+        lastOutputTime = ElapsedMilliseconds()
+        
+        ; Check for cmd.exe prompt pattern (e.g., "C:\path\to\folder>")
+        ; Prompt typically ends with ">" and has a path before it
+        If FindString(output, ">", #PB_String_NoCase) > 0
+          ; Check if it looks like a Windows path (contains ":" or "\")
+          If FindString(output, ":\", #PB_String_NoCase) > 0 Or 
+             FindString(output, "\", #PB_String_NoCase) > 0
+            foundPrompt = #True
+            Debug "WaitForPrompt: Found prompt pattern in output: " + output
+          EndIf
+        EndIf
+      EndIf
+    EndIf
+    
+    ; Check if program still running
+    If Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
+      Debug "WaitForPrompt: Program terminated"
+      ProcedureReturn #False
+    EndIf
+    
+    ; If we found a prompt pattern, wait a bit more to ensure it's stable
+    If foundPrompt
+      Delay(500)
+      ; Check if there's still no new output (confirming prompt is ready)
+      If AvailableProgramOutput(ProgramID) = 0
+        Debug "WaitForPrompt: Prompt confirmed ready"
+        ProcedureReturn #True
+      Else
+        ; More output came, not ready yet
+        foundPrompt = #False
+      EndIf
+    EndIf
+    
+    ; Check for idle timeout (no output for specified time = command finished)
+    If ElapsedMilliseconds() - lastOutputTime > idleTime
+      Debug "WaitForPrompt: Idle timeout reached, assuming prompt ready"
+      ProcedureReturn #True
+    EndIf
+    
+    ; Check for overall timeout
+    If ElapsedMilliseconds() - startTime > timeoutMs
+      Debug "WaitForPrompt: Overall timeout reached"
+      ProcedureReturn #False
+    EndIf
+    
+    Delay(100)
+  ForEver
+EndProcedure
+
+; ===== Updated StartDockerFollow using TransformCommand =====
 Procedure StartDockerFollow(index)
+  
+  If dockerProgramID(index) <> 0
+    If IsProgram(dockerProgramID(index))
+      CloseProgram(dockerProgramID(index))
+    EndIf
+    dockerProgramID(index) = 0
+  EndIf
+  
+  containerStarted(index) = #True
+  If trayID(index) = 0
+    CreateMonitorIcon(index, innerColor(index), bgColor(index))
+  EndIf
+  SetListItemStarted(index, #True)
+  ShowSystrayRunningNotification(index)
+  
+  
+  dockerExecutable$ = GetDockerExcutable()
+  
+  
+  
+  cmdWithUTF8Command.s = "chcp 65001 >NUL &"
+  
+  Select monitorConfiguration(index)\type
+      
+    Case #COMMAND
+      Debug "START COMMAND"
+      
+      ; Transform the command string to optimized format
+      monitorConfiguration(index)\commandTransformed =  TransformCommand(monitorConfiguration(index)\content)
+      commandString$ = monitorConfiguration(index)\commandTransformed
+      commandCount = CountString(commandString$ , Chr(10)) + 1
+      
+      Debug "Original commands:"
+      Debug monitorConfiguration(index)\content
+      Debug ""
+      Debug "Transformed to:"
+      Debug monitorConfiguration(index)\commandTransformed
+      Debug ""
+      Debug "commandCount"
+      Debug commandCount
+      
+      If commandCount > 1
+        firstCommand$ = Trim(StringField(commandString$, 1, Chr(10))) 
+        dockerCommand$ = "/k "+cmdWithUTF8Command+" " + firstCommand$
+        ProgramID = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Write | #PB_Program_Hide)
+        monitorConfiguration(index)\currentCommand = 2
+        
+        Debug "###execute multiple lines"
+        
+        
+        ;         ; Wait for first command to initialize (especially important for docker exec)
+        ;         Delay(1000)
+        ;         
+        ;         ; Drain initial output
+        ;         Repeat
+        ;           Debug "###ReadProgramError "
+        ;           
+        ;           line.s = ReadProgramError(ProgramID)
+        ;           Debug "###err: "+line
+        ;         Until line = ""
+        ;         
+        ;         Repeat
+        ;           programOutput = AvailableProgramOutput(ProgramID)
+        ;           If  programOutput > 0
+        ;             Debug "###ReadProgramString "
+        ;             line = ReadProgramOutputBytes(ProgramID,programOutput)
+        ;             Debug "###line: "+line
+        ;           Else
+        ;             Break 
+        ;           EndIf 
+        ;         Until #True
+        ;         
+        ;         ; Send remaining commands interactively (starting from line 2)
+        ;         For i = 2 To commandCount
+        ;           command$ = Trim(StringField(commandString$, i, Chr(10)))
+        ;                       WriteProgramStringN(ProgramID, command$)
+        ; 
+        ;           If command$ <> ""
+        ;             Debug "###WriteProgramStringN command$ "+command$
+        ;             
+        ;             WriteProgramStringN(ProgramID, command$)
+        ;             Delay(500)
+        ;             Debug "###WriteProgramStringN completed "+command$
+        ;             
+        ;             ; Drain buffers after each command
+        ;             Repeat
+        ;               Debug "###WriteProgramStringN ReadProgramError "
+        ;               
+        ;               line.s = ReadProgramError(ProgramID)
+        ;               Debug "###WriteProgramStringN err "+line
+        ;               
+        ;             Until line = ""
+        ;             
+        ;             Repeat
+        ;               programOutput = AvailableProgramOutput(ProgramID)
+        ;               If  programOutput > 0
+        ;                 Debug "######WriteProgramStringN ReadProgramString "
+        ;                 line = ReadProgramOutputBytes(ProgramID,programOutput)
+        ;                 Debug "######WriteProgramStringN line: "+line
+        ;               Else
+        ;                 Break 
+        ;               EndIf 
+        ;             Until #True
+        ;             
+        ;           EndIf
+        ;         Next
+        
+        dockerProgramID(index) = ProgramID
+        
+      Else
+        ; Single command - run directly without interactive mode
+        dockerCommand$ = "/c "+cmdWithUTF8Command+" " + commandString$
+        dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+        monitorConfiguration(index)\currentCommand = 0 ; means not multiline or finished, otherwise > 0
+      EndIf
+      
+    Case #CONTAINER
+      container$ = monitorConfiguration(index)\content
+      
+      ProgramID = RunProgram(dockerExecutable$, "inspect -f {{.State.Running}} " + container$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      
+      If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
+        ProcedureReturn
+      EndIf
+      
+      Repeat
+        dataRead = #False
+        
+        Repeat
+          line.s = ReadProgramError(ProgramID) 
+          If Trim(line) <> ""
+            MessageRequester("Error", line)
+            ProcedureReturn 
+          EndIf
+        Until line = ""
+        
+        programOutput = AvailableProgramOutput(ProgramID)
+        
+        If programOutput > 0
+          line = ReadProgramString(ProgramID)    
+          If FindString(line, "false") > 0
+            MessageRequester("Error", "Container '" + container$ + "' is not running.")
+            ProcedureReturn
+          ElseIf FindString(line, "true") > 0
+            Break
+          EndIf 
+          If line <> ""
+            dataRead = #True
+          EndIf
+        EndIf
+        
+        Delay(1)
+      Until dataRead = #False And #False
+      
+      dockerCommand$ = "/c "+cmdWithUTF8Command+" " + Chr(34) + dockerExecutable$ + Chr(34) + " logs --follow --tail 1000 " + container$ 
+      dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      monitorConfiguration(index)\currentCommand = 0
+  EndSelect
+  
+  If dockerProgramID(index) = 0 Or Not IsProgram(dockerProgramID(index))
+    StopDockerFollow(index)
+    MessageRequester("Error", "Failed to start monitoring process")
+    ProcedureReturn
+  EndIf
+  
+  containerStarted(index) = #True
+  Debug "Started successfully"
+  
+  
+  ClearList(containerOutput(index)\lines())
+  
+  ; Add the ORIGINAL executed commands to the output (not transformed)
+  If monitorConfiguration(index)\type = #COMMAND
+    commandString.s = monitorConfiguration(index)\commandTransformed  
+    commandCount = CountString(commandString, Chr(10)) + 1
+    command$ = Trim(StringField(commandString, 1, Chr(10)))
+    If command$ <> ""
+      AddElement(containerOutput(index)\lines())
+      currentDir.s = GetCurrentDirectory()
+      currentDir = Left(currentDir,Len(currentDir)-1)
+      containerOutput(index)\lines() = currentDir+"> " + command$
+    EndIf
+  EndIf 
+  
+  
+  
+  containerOutput(index)\currentLine = 0
+  
+EndProcedure
+
+; Example usage and test cases:
+; 
+; Input:
+; "docker exec -it my-app /bin/sh" + Chr(10) +
+; "cd /app" + Chr(10) +
+; "ls -la" + Chr(10) +
+; "npx ng serve --host 0.0.0.0 --poll=2000"
+;
+; Output:
+; "docker exec -i my-app /bin/sh -c "cd /app && ls -la && npx ng serve --host 0.0.0.0 --poll=2000""
+;
+; Input with commands before and after:
+; "echo Starting..." + Chr(10) +
+; "docker exec -it my-app /bin/bash" + Chr(10) +
+; "cd /app" + Chr(10) +
+; "npm start" + Chr(10) +
+; "exit" + Chr(10) +
+; "echo Done"
+;
+; Output:
+; "echo Starting..." + Chr(10) +
+; "docker exec -i my-app /bin/bash -c "cd /app && npm start"" + Chr(10) +
+; "echo Done"
+
+; Transform multiline commands into optimized format
+
+
+
+
+
+monitorConfiguration(index)\type = #COMMAND
+; monitorConfiguration(index)\content = "ls"+Chr(10)+"docker exec -i my-app /bin/sh" + Chr(10) +
+;                          "cd /app" + Chr(10) +
+;                           "ls -la"+ Chr(10) 
+;     + "npx ng serve --host 0.0.0.0"
+
+monitorConfiguration(index)\content =  "docker exec -i my-app /bin/sh -c " + Chr(34) + 
+                                       "cd /app && ls -la && npx ng serve --host 0.0.0.0 --poll=2000" + Chr(34)
+
+monitorConfiguration(index)\content =  "docker exec -it my-app /bin/sh" + Chr(10) +
+                                       "cd /app" + Chr(10) +
+                                       "ls -la" + Chr(10) +
+                                       "npx ng serve --host 0.0.0.0 --poll=2000" + Chr(10) +
+                                       "exit" + Chr(10) +
+                                       "echo Done"
+
+monitorConfiguration(index)\content = "docker exec -it my-app /bin/sh" + Chr(10) +
+                                      "cd /app" + Chr(10) +
+                                      "ls -la" + Chr(10) +
+                                      "npx ng build" + Chr(10) +
+                                      "exit" + Chr(10) +
+                                      "echo Done"
+
+;monitorConfiguration(index)\content = "cd .."+Chr(10)+"dir"+Chr(10)+"echo Test"+Chr(10)+"dir"
+
+
+
+
+
+
+
+Procedure.s TransformCommandSSSS(commandString.s)
+  Protected result.s = ""
+  Protected commandCount.i
+  Protected firstCommand.s, command.s
+  Protected insideDocker.i = #False
+  Protected dockerCommand.s = ""
+  Protected containerName.s = ""
+  Protected shellType.s = ""
+  Protected shellCommands.s = ""
+  Protected postDockerCommands.s = ""
+  Protected chainOperator.s
+  Protected i.i
+  
+  commandCount = CountString(commandString, Chr(10)) + 1
+  
+  ; Single command - return as is
+  If commandCount = 1
+    ProcedureReturn Trim(commandString)
+  EndIf
+  
+  ; Parse commands line by line
+  For i = 1 To commandCount
+    command = Trim(StringField(commandString, i, Chr(10)))
+    
+    ;     ; Check for Ctrl+C (ASCII 3)
+    ;     If command = Chr(3) Or FindString(command, Chr(3)) > 0
+    ;       ; Ctrl+C exits the docker session
+    ;       If insideDocker
+    ;         insideDocker = #False
+    ;       EndIf
+    ;       Continue ; Skip processing this line
+    ;     EndIf
+    
+    If command <> ""
+      
+      ; Check if entering docker exec
+      If FindString(command, "docker exec", 1, #PB_String_NoCase) > 0
+        insideDocker = #True
+        dockerCommand = command
+        
+        ; Extract container name (assumes format: docker exec [flags] container-name [shell])
+        ; Remove docker exec and flags
+        tempCmd.s = command
+        tempCmd = ReplaceString(tempCmd, "docker exec", "", #PB_String_NoCase, 1, 1)
+        tempCmd = Trim(tempCmd)
+        
+        ; Remove common flags
+        tempCmd = ReplaceString(tempCmd, "-it", "")
+        tempCmd = ReplaceString(tempCmd, "-i", "")
+        tempCmd = ReplaceString(tempCmd, "-t", "")
+        tempCmd = ReplaceString(tempCmd, "-d", "")
+        tempCmd = Trim(tempCmd)
+        
+        ; First word should be container name
+        spacePos = FindString(tempCmd, " ")
+        If spacePos > 0
+          containerName = Left(tempCmd, spacePos - 1)
+          shellType = Trim(Mid(tempCmd, spacePos + 1))
+        Else
+          containerName = tempCmd
+          shellType = "/bin/sh" ; default
+        EndIf
+        
+        ; Detect shell type from command or use default
+        If shellType = ""
+          shellType = "/bin/sh"
+        ElseIf FindString(shellType, "bash", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/bash"
+        ElseIf FindString(shellType, "sh", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/sh"
+        ElseIf FindString(shellType, "ash", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/ash"
+        ElseIf FindString(shellType, "dash", 1, #PB_String_NoCase) > 0
+          shellType = "/bin/dash"
+        Else
+          ; If not recognized, keep as is but default to /bin/sh for safety
+          If Left(shellType, 1) <> "/"
+            shellType = "/bin/sh"
+          EndIf
+        EndIf
+        
+        ; Determine chain operator based on shell type
+        ; All POSIX shells support &&
+        chainOperator = " && "
+        
+        ; Check if exiting docker (exit command)
+      ElseIf insideDocker And (LCase(command) = "exit" Or FindString(LCase(command), "exit ", 1) = 1)
+        insideDocker = #False
+        ; Don't add exit to shell commands - it will terminate naturally
+        ; Any commands after this will go to postDockerCommands
+        
+        ; Regular command
+      Else
+        If insideDocker
+          ; Add to shell commands
+          If shellCommands <> ""
+            shellCommands + chainOperator
+          EndIf
+          shellCommands + command
+        Else
+          ; Command outside docker (before or after)
+          If dockerCommand = ""
+            ; Before docker - add to result
+            If result <> ""
+              result + Chr(10)
+            EndIf
+            result + command
+          Else
+            ; After docker - add to post commands
+            If postDockerCommands <> ""
+              postDockerCommands + Chr(10)
+            EndIf
+            postDockerCommands + command
+          EndIf
+        EndIf
+      EndIf
+      
+    EndIf
+  Next
+  
+  ; Build final command
+  If dockerCommand <> ""
+    ; We have docker exec commands
+    If result <> ""
+      result + Chr(10)
+    EndIf
+    
+    If shellCommands <> ""
+      ; Build optimized docker exec command with -i flag and -c
+      result + "docker exec -i " + containerName + " " + shellType + " -c " + Chr(34) + shellCommands + Chr(34)
+    Else
+      ; Just the docker exec without commands (interactive shell)
+      result + "docker exec -i " + containerName + " " + shellType
+    EndIf
+    
+    ; Add post-docker commands
+    If postDockerCommands <> ""
+      result + Chr(10) + postDockerCommands
+    EndIf
+  EndIf
+  
+  ProcedureReturn result
+EndProcedure
+
+; ===== Updated StartDockerFollow using TransformCommand =====
+Procedure StartDockerFollowSSSS(index)
+  
+  If dockerProgramID(index) <> 0
+    If IsProgram(dockerProgramID(index))
+      CloseProgram(dockerProgramID(index))
+    EndIf
+    dockerProgramID(index) = 0
+  EndIf
+  
+  dockerExecutable$ = GetDockerExcutable()
+  
+  Select monitorConfiguration(index)\type
+      
+    Case #COMMAND
+      Debug "START COMMAND"
+      
+      ; Transform the command string to optimized format
+      originalCommandString.s = monitorConfiguration(index)\content
+      commandString$ = TransformCommand(originalCommandString)
+      
+      Debug "Original commands:"
+      Debug originalCommandString
+      Debug ""
+      Debug "Transformed to:"
+      Debug commandString$
+      Debug ""
+      
+      ; Multiple interactive commands - improved approach
+      commandCount = CountString(commandString$, Chr(10)) + 1
+      
+      If commandCount > 1
+        ; Get first command to run directly
+        firstCommand$ = Trim(StringField(commandString$, 1, Chr(10)))
+        
+        ; Start with first command directly
+        dockerCommand$ = "/k " + firstCommand$
+        dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Write | #PB_Program_Hide)
+        ProgramID = dockerProgramID(index)
+        
+        If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
+          MessageRequester("Error", "Failed to start command")
+          ProcedureReturn
+        EndIf
+        
+        ; Wait for first command to initialize (especially important for docker exec)
+        Delay(1000)
+        
+        ; Drain initial output
+        Repeat
+          line.s = ReadProgramError(ProgramID)
+        Until line = ""
+        
+        While AvailableProgramOutput(ProgramID) > 0
+          line = ReadProgramString(ProgramID)
+        Wend
+        
+        ; Send remaining commands interactively (starting from line 2)
+        For i = 2 To commandCount
+          command$ = Trim(StringField(commandString$, i, Chr(10)))
+          
+          If command$ <> ""
+            WriteProgramStringN(ProgramID, command$)
+            Delay(500)
+            
+            ; Drain buffers after each command
+            Repeat
+              line.s = ReadProgramError(ProgramID)
+            Until line = ""
+            
+            If AvailableProgramOutput(ProgramID) > 0
+              line = ReadProgramString(ProgramID)
+            EndIf
+          EndIf
+        Next
+        
+      Else
+        ; Single command - run directly without interactive mode
+        dockerCommand$ = "/c " + commandString$
+        dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      EndIf
+      
+    Case #CONTAINER
+      container$ = monitorConfiguration(index)\content
+      
+      ProgramID = RunProgram(dockerExecutable$, "inspect -f {{.State.Running}} " + container$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      
+      If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
+        ProcedureReturn
+      EndIf
+      
+      Repeat
+        dataRead = #False
+        
+        Repeat
+          line.s = ReadProgramError(ProgramID) 
+          If Trim(line) <> ""
+            MessageRequester("Error", line)
+            ProcedureReturn 
+          EndIf
+        Until line = ""
+        
+        programOutput = AvailableProgramOutput(ProgramID)
+        
+        If programOutput > 0
+          line = ReadProgramString(ProgramID)    
+          If FindString(line, "false") > 0
+            MessageRequester("Error", "Container '" + container$ + "' is not running.")
+            ProcedureReturn
+          ElseIf FindString(line, "true") > 0
+            Break
+          EndIf 
+          If line <> ""
+            dataRead = #True
+          EndIf
+        EndIf
+        
+        Delay(1)
+      Until dataRead = #False And #False
+      
+      dockerCommand$ = "/c " + Chr(34) + dockerExecutable$ + Chr(34) + " logs --follow --tail 1000 " + container$ 
+      dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      
+  EndSelect
+  
+  If dockerProgramID(index) = 0 Or Not IsProgram(dockerProgramID(index))
+    MessageRequester("Error", "Failed to start monitoring process")
+    ProcedureReturn
+  EndIf
+  
+  containerStarted(index) = #True
+  Debug "Started successfully"
+  
+  If trayID(index) = 0
+    CreateMonitorIcon(index, innerColor(index), bgColor(index))
+  EndIf
+  containerStarted(index) = #True
+  SetListItemStarted(index, #True)
+  
+  ShowSystrayRunningNotification(index)
+  
+  ClearList(containerOutput(index)\lines())
+  
+  ; Add the ORIGINAL executed commands to the output (not transformed)
+  If monitorConfiguration(index)\type = #COMMAND
+    originalCommandString.s = monitorConfiguration(index)\content
+    commandCount = CountString(originalCommandString, Chr(10)) + 1
+    For i = 1 To commandCount
+      command$ = Trim(StringField(originalCommandString, i, Chr(10)))
+      If command$ <> ""
+        AddElement(containerOutput(index)\lines())
+        containerOutput(index)\lines() = "> " + command$
+      EndIf
+    Next
+  EndIf
+  
+  containerOutput(index)\currentLine = 0
+  
+EndProcedure
+
+
+
+
+
+
+Procedure StartDockerFollowY(index)
+  
+  If dockerProgramID(index) <> 0
+    If IsProgram(dockerProgramID(index))
+      CloseProgram(dockerProgramID(index))
+    EndIf
+    dockerProgramID(index) = 0
+  EndIf
+  
+  dockerExecutable$ = GetDockerExcutable()
+  
+  Select monitorConfiguration(index)\type
+      
+      
+    Case #COMMAND
+      Debug "START COMMAND"
+      ; For single-line commands, run directly
+      commandString$ = monitorConfiguration(index)\content
+      
+      ; Multiple interactive commands - improved approach
+      commandCount = CountString(commandString$, Chr(10)) + 1
+      
+      If commandCount > 1
+        ; Get first command to run directly
+        firstCommand$ = Trim(StringField(commandString$, 1, Chr(10)))
+        
+        ; Start with first command directly
+        dockerCommand$ = "/c " + firstCommand$
+        dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Write | #PB_Program_Hide)
+        ProgramID = dockerProgramID(index)
+        
+        If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
+          MessageRequester("Error", "Failed to start command")
+          ProcedureReturn
+        EndIf
+        
+        ; Wait for first command to initialize (especially important for docker exec)
+        Delay(1000)
+        
+        ; Drain initial output
+        Repeat
+          line.s = ReadProgramError(ProgramID)
+        Until line = ""
+        
+        While AvailableProgramOutput(ProgramID) > 0
+          line = ReadProgramString(ProgramID)
+        Wend
+        
+        ; Send remaining commands interactively (starting from line 2)
+        For i = 2 To commandCount
+          command$ = Trim(StringField(commandString$, i, Chr(10)))
+          
+          If command$ <> ""
+            WriteProgramStringN(ProgramID, command$)
+            Delay(500)
+            
+            ; Drain buffers after each command
+            Repeat
+              line.s = ReadProgramError(ProgramID)
+            Until line = ""
+            
+            If AvailableProgramOutput(ProgramID) > 0
+              line = ReadProgramString(ProgramID)
+            EndIf
+          EndIf
+        Next
+        
+      Else
+        ; Single command - run directly without interactive mode
+        dockerCommand$ = "/c " + commandString$
+        dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      EndIf
+      
+      
+    Case #CONTAINER
+      container$ = monitorConfiguration(index)\content
+      
+      ProgramID = RunProgram(dockerExecutable$, "inspect -f {{.State.Running}} " + container$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      
+      If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
+        ProcedureReturn
+      EndIf
+      
+      Repeat
+        dataRead = #False
+        
+        Repeat
+          line.s = ReadProgramError(ProgramID) 
+          If Trim(line) <> ""
+            MessageRequester("Error", line)
+            ProcedureReturn 
+          EndIf
+        Until line = ""
+        
+        programOutput = AvailableProgramOutput(ProgramID)
+        
+        If programOutput > 0
+          line = ReadProgramString(ProgramID)    
+          If FindString(line, "false") > 0
+            MessageRequester("Error", "Container '" + container$ + "' is not running.")
+            ProcedureReturn
+          ElseIf FindString(line, "true") > 0
+            Break
+          EndIf 
+          If line <> ""
+            dataRead = #True
+          EndIf
+        EndIf
+        
+        Delay(1)
+      Until dataRead = #False And #False
+      
+      dockerCommand$ = "/c " + Chr(34) + dockerExecutable$ + Chr(34) + " logs --follow --tail 1000 " + container$ 
+      dockerProgramID(index) = RunProgram("cmd.exe", dockerCommand$, "", #PB_Program_Open | #PB_Program_Error | #PB_Program_Read | #PB_Program_Hide)
+      
+  EndSelect
+  
+  If dockerProgramID(index) = 0 Or Not IsProgram(dockerProgramID(index))
+    MessageRequester("Error", "Failed to start monitoring process")
+    ProcedureReturn
+  EndIf
+  
+  containerStarted(index) = #True
+  Debug "Started successfully"
+  
+  If trayID(index) = 0
+    CreateMonitorIcon(index, innerColor(index), bgColor(index))
+  EndIf
+  containerStarted(index) = #True
+  SetListItemStarted(index,#True)
+  
+  ShowSystrayRunningNotification(index)
+  
+  ClearList(containerOutput(index)\lines())
+  
+  ; Add the executed commands to the output
+  If monitorConfiguration(index)\type = #COMMAND
+    commandCount = CountString(monitorConfiguration(index)\content, Chr(10)) + 1
+    For i = 1 To commandCount
+      command$ = Trim(StringField(monitorConfiguration(index)\content, i, Chr(10)))
+      If command$ <> ""
+        AddElement(containerOutput(index)\lines())
+        containerOutput(index)\lines() = "> " + command$
+      EndIf
+    Next
+  EndIf
+  
+  containerOutput(index)\currentLine = 0
+  
+EndProcedure
+
+; StartDockerFollow(index)
+; 
+; If containerStarted(index)
+;   ; Read output for 5 seconds
+;   ;startTime = ElapsedMilliseconds()
+;   
+;   Repeat
+;     ProgramID = dockerProgramID(index)
+;     
+;     If ProgramID And IsProgram(ProgramID)
+;       ; Read errors
+;       Repeat
+;         line.s = ReadProgramError(ProgramID)
+;         If line <> ""
+;           Debug "ERR: " + line
+;         EndIf
+;       Until line = ""
+;       
+;       ; Read output
+;       If AvailableProgramOutput(ProgramID) > 0
+;         line = ReadProgramString(ProgramID)
+;         If line <> ""
+;           Debug "OUT: " + line
+;         EndIf
+;       EndIf
+;     EndIf
+;     
+;     Delay(100)
+;   Until #False;ElapsedMilliseconds() - startTime > 5000
+;   
+;   ; Cleanup
+;   If IsProgram(dockerProgramID(index))
+;     CloseProgram(dockerProgramID(index))
+;   EndIf
+; EndIf
+; 
+; MessageRequester("Done", "Check debug output (F7)")
+
+
+
+
+
+
+
+
+
+
+
+Procedure StartDockerFollowX(index)
   If dockerProgramID(index) <> 0
     CloseProgram(dockerProgramID(index))
     dockerProgramID(index) = 0
@@ -1025,12 +2077,24 @@ Procedure AddOutputLines(index, editorGadgetID, lines.s)
     ; Count how many lines we're about to add
     Protected newLinesToAdd.l = 1 ; At least one line
     Protected i.l
-    For i = 1 To Len(lines)
-      If Mid(lines, i, 1) = Chr(10)
-        newLinesToAdd + 1
-      EndIf
-    Next
+    newLinesToAdd =CountString(lines,Chr(10))
+    newlines.s = ""
     Debug "Lines to add: " + Str(newLinesToAdd)
+    
+    
+    For i = 1 To newLinesToAdd+2
+      line.s = Trim(StringField(lines, i, Chr(10))) ; remove any trailing CR/LF or spaces
+      If line = "" Or IsWaitingForInput(line) Or Asc(Mid(line,1,1))=0
+        newLinesToAdd = newLinesToAdd - 1
+        Debug "''''REMVOED: "+line
+      Else
+        Debug line
+        newlines = newlines + line+Chr(10)
+        
+      EndIf   
+    Next
+    
+    Debug newlines
     
     ; Handle line limit - delete as many lines as we're adding
     Protected lineCount.l = SendMessage_(hEditor, #EM_GETLINECOUNT, 0, 0)
@@ -1093,8 +2157,7 @@ Procedure AddOutputLines(index, editorGadgetID, lines.s)
     EndIf
     SendMessage_(hEditor, #EM_SETCHARFORMAT, #SCF_SELECTION, @cf)
     
-    Protected appendText.s = Chr(13) + Chr(10) + lines ; Use CRLF for Windows Rich Edit
-    Result = SendMessage_(hEditor, #EM_REPLACESEL, #True, @appendText)
+    Result = SendMessage_(hEditor, #EM_REPLACESEL, #True, @newLines)
     
     ; Verify text length after append
     Protected newTextLen.l = SendMessage_(hEditor, #WM_GETTEXTLENGTH, 0, 0)
@@ -1112,7 +2175,8 @@ Procedure AddOutputLines(index, editorGadgetID, lines.s)
     EndIf
     
     ; Color the new lines (or all text if newLinesCount = 0)
-    SetEditorTextColor(index, newLinesCount)
+    
+    SetEditorTextColor(index, newLinesCount+1)
     
     ; Get line height for scroll adjustment
     Protected firstCharIndex.l = SendMessage_(hEditor, #EM_LINEINDEX, 0, 0)
@@ -1176,12 +2240,21 @@ EndProcedure
 
 ; -------------------- CHECK DOCKER OUTPUT --------------------
 
-Procedure HandleInputLine(index,line$, addLine = #True)
+Procedure HandleInputLine(index,line$, addLine = #True,waitingForInput=#False)
+  Debug "###### " + line$
   If addLine
     LastElement(containerOutput(index)\lines())
-    AddElement(containerOutput(index)\lines())
-    containerOutput(index)\lines() = line$
-    
+    If waitingForInput
+      lastLine$ =  containerOutput(index)\lines()
+      AddElement(containerOutput(index)\lines())
+      containerOutput(index)\lines() = lastLine$+" "+line$
+    Else
+      
+      AddElement(containerOutput(index)\lines())
+      containerOutput(index)\lines() = line$
+      
+      
+    EndIf  
     ListSize = ListSize(containerOutput(index)\lines())
     
     If ListSize > #MAX_LINES
@@ -1191,18 +2264,20 @@ Procedure HandleInputLine(index,line$, addLine = #True)
     EndIf
   EndIf 
   
-  For p = 0 To patternCount(index)-1
-    If FindString(line$, patterns(index,p), 1) > 0
-      OnMatch(index, p, line$,1-addLine)
-    Else
-      If CreateRegularExpression(0, patterns(index,p))
-        If MatchRegularExpression(0, line$)
-          OnMatch(index, p, line$,1-addLine)
+  
+  If Not waitingForInput
+    For p = 0 To patternCount(index)-1
+      If FindString(line$, patterns(index,p), 1) > 0
+        OnMatch(index, p, line$,1-addLine)
+      Else
+        If CreateRegularExpression(0, patterns(index,p))
+          If MatchRegularExpression(0, line$)
+            OnMatch(index, p, line$,1-addLine)
+          EndIf
         EndIf
       EndIf
-    EndIf
-  Next
-  
+    Next
+  EndIf 
   
 EndProcedure
 
@@ -1245,27 +2320,24 @@ Procedure HandleInputDisplay(index)
   
 EndProcedure
 
-Procedure.s ReadProgramOutputBytes(ProgramID, length)
-  Protected buffer
-  Protected bytesRead.l
-  
-  ; Allocate a memory buffer
-  buffer = AllocateMemory(length)
-  If buffer = 0
-    ProcedureReturn ""
-  EndIf
-  
-  ; Read data from program output
-  bytesRead = ReadProgramData(ProgramID, buffer, length)
-  
-  ; Convert buffer to string
-  ProcedureReturn PeekS(buffer, bytesRead, #PB_UTF8   )
-EndProcedure
+
+
+
 
 Procedure CheckDockerOutput(index)
   Protected line.s
   Protected ProgramID.i = dockerProgramID(index)
   Protected dataRead.l ; Flag to track if ANY data was read
+  
+  If index = 0 And #False
+    If ProgramID = 0
+      Debug "CheckDockerOutput "+Str(ProgramID)
+    Else
+      Debug "CheckDockerOutput "+Str(ProgramID)+" "+Str(IsProgram(ProgramID))+" "+Str(ProgramRunning(ProgramID))
+    EndIf 
+  EndIf 
+  
+  
   
   ; --- 1. Program Termination Check ---
   If ProgramID = 0 Or Not IsProgram(ProgramID) Or Not ProgramRunning(ProgramID)
@@ -1305,19 +2377,19 @@ Procedure CheckDockerOutput(index)
     If  programOutput > 0
       ; Data is available, so ReadProgramString() will not block indefinitely.      
       
-      
       output.s = ReadProgramOutputBytes(ProgramID,programOutput)    
       If output <> ""
-        
-        lineCount = CountString(output, Chr(10)) + 1
-        
+        lineCount = CountString(output, Chr(10)) + 1   
         ; Loop through each line (1-based!)
         For i = 1 To lineCount
           line.s = Trim(ReplaceString(StringField(output, i, Chr(10)),Chr(13),"")) ; remove any trailing CR/LF or spaces
           If line <> ""
-            HandleInputLine(index, line)
+            waitingForInput = IsWaitingForInput( containerOutput(index)\lines())
+            HandleInputLine(index, line, #True, waitingForInput)
+            monitorConfiguration(index)\waitingForInput = waitingForInput
             dataRead = #True
           EndIf
+          
         Next
         
       EndIf
@@ -1334,6 +2406,44 @@ Procedure CheckDockerOutput(index)
     ; loop or from stdout), we immediately run the full check again. This is
     ; essential because new data might have arrived during the processing of the last batch.
   Until dataRead = #False 
+  
+  
+  
+  If monitorConfiguration(index)\currentCommand > 0
+    
+    If ElapsedMilliseconds()-containerStartedTime(index) > 5000
+      
+      
+      
+      
+      LastElement(containerOutput(index)\lines())
+      waitingForInput = IsWaitingForInput( containerOutput(index)\lines())
+      If waitingForInput
+        
+        ; Multiple interactive commands - improved approach
+        commandCount = CountString(monitorConfiguration(index)\commandTransformed, Chr(10)) + 1
+        command$ = Trim(StringField( monitorConfiguration(index)\commandTransformed, monitorConfiguration(index)\currentCommand, Chr(10)))
+        Debug "process command ##########"
+        Debug command$
+        
+        WriteProgramStringN(ProgramID, command$)
+        
+        
+        
+        
+        monitorConfiguration(index)\currentCommand = monitorConfiguration(index)\currentCommand +1
+        If  monitorConfiguration(index)\currentCommand>commandCount
+          monitorConfiguration(index)\currentCommand = 0
+        EndIf 
+        Debug "newcommand #####"
+        Debug monitorConfiguration(index)\currentCommand
+        
+        monitorConfiguration(index)\waitingForInput = #False
+        
+      EndIf   
+    EndIf 
+  EndIf 
+  
   
   If ElapsedMilliseconds()-lastTimeOuputAdded>50
     lastTimeOuputAdded = ElapsedMilliseconds()
@@ -1418,7 +2528,7 @@ EndProcedure
 #EM_SETPARAFORMAT = $447
 #EM_GETPARAFORMAT = $43D
 
-#EDITOR_LINE_HEIGHT = 23
+#EDITOR_LINE_HEIGHT = 22
 
 Procedure SetFixedLineHeight(hEditor, heightPixels)
   Protected pf.PARAFORMAT2
@@ -1452,7 +2562,9 @@ Procedure ShowLogs(index)
   EndIf
   
   ForEach containerOutput(index)\lines()
-    text$ =  text$+Chr(10)+containerOutput(index)\lines()
+    If Trim(containerOutput(index)\lines()) <> "" And Not IsWaitingForInput(containerOutput(index)\lines())
+      text$ =  text$+containerOutput(index)\lines()+Chr(10)
+    EndIf 
   Next
   
   
@@ -1510,7 +2622,6 @@ Procedure ShowLogs(index)
     BindEvent(#PB_Event_MoveWindow, @MoveLogWindow(),winID)
     
     SetGadgetText(editorID,text$)
-    SetEditorTextColor( index)
     
     ScrollEditorToBottom(editorID)
     
@@ -1521,6 +2632,7 @@ Procedure ShowLogs(index)
     UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
     
     ScrollEditorToBottom(editorID)
+    SetEditorTextColor( index)
     
   EndIf
 EndProcedure
@@ -1677,7 +2789,7 @@ Procedure StartApp()
             Case #EventOk
               bgCol = GetGadgetColor(14,#PB_Gadget_BackColor)
               CloseAddMonitorDialog(bgCol)
-              Event = #PB_Event_CloseWindow
+              closeWindow = #True
           EndSelect
         ElseIf Event = #PB_Event_Gadget
           Select EventGadget()
@@ -1728,6 +2840,10 @@ Procedure StartApp()
                   SetActiveWindow(4)
                   SetActiveGadget(40)
                   SetGadgetItemState(40,patternCount(currentContainerIndex)-1,#PB_ListIcon_Selected)
+                EndIf 
+                If containerStarted(currentContainerIndex)
+                  HandleInputLine(currentContainerIndex, lastMatch(currentContainerIndex),#False)
+                  SetEditorTextColor( currentContainerIndex)  
                 EndIf 
                 closeWindow = #True
               EndIf
@@ -1929,9 +3045,9 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 451
-; FirstLine = 424
-; Folding = ----------
+; CursorPosition = 889
+; FirstLine = 888
+; Folding = -----------
 ; Optimizer
 ; EnableThread
 ; EnableXP

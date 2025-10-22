@@ -346,26 +346,26 @@ Procedure CreateWindowIcon(winID,index)
   
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Call the procedure to get the icon handles
-    iconBG =  CreateImage(#PB_Any, #ICON_SIZE, #ICON_SIZE)
-    If iconBG
-      StartDrawing(ImageOutput(iconBG))
-      Box(0, 0, #ICON_SIZE, #ICON_SIZE, bgColor(index))
-      StopDrawing()
-      
-      ;       BigIconHandle   =  CreateHIconFromImage(iconBG) ;Taskbar icon
-      ;       
-      ;       If BigIconHandle 
-      ;         If containterMetaData(index)\bigIconHandle
-      ;           DestroyIcon_(containterMetaData(index)\bigIconHandle)
-      ;         EndIf 
-      ;         containterMetaData(index)\bigIconHandle = BigIconHandle
-      ;         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
-      ;       EndIf 
-      
-      If infoImageID(index)
-        SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, infoImageID(index))
-      EndIf
-    EndIf 
+    ;     iconBG =  CreateImage(#PB_Any, #ICON_SIZE, #ICON_SIZE)
+    ;     If iconBG
+    ;       StartDrawing(ImageOutput(iconBG))
+    ;       Box(0, 0, #ICON_SIZE, #ICON_SIZE, bgColor(index))
+    ;       StopDrawing()
+    
+    ;       BigIconHandle   =  CreateHIconFromImage(iconBG) ;Taskbar icon
+    ;       
+    ;       If BigIconHandle 
+    ;         If containterMetaData(index)\bigIconHandle
+    ;           DestroyIcon_(containterMetaData(index)\bigIconHandle)
+    ;         EndIf 
+    ;         containterMetaData(index)\bigIconHandle = BigIconHandle
+    ;         SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, BigIconHandle)
+    ;       EndIf 
+    ;     EndIf
+    If infoImageID(index)
+      SendMessage_(WindowID(winID), #WM_SETICON, #ICON_SMALL, infoImageID(index))
+    EndIf
+    
     SetOverlayIcon(WindowID(winID),index)
     SendMessage_(WindowID(winID), #WM_SETICON, #ICON_BIG, ExtractIcon_(GetModuleHandle_(0), ProgramFilename(), 0))
     
@@ -385,7 +385,8 @@ CompilerEndIf
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2
+; CursorPosition = 363
+; FirstLine = 345
 ; Folding = --
 ; EnableXP
 ; DPIAware

@@ -935,10 +935,7 @@ EndProcedure
   EndProcedure
   
   
-  
-  
-  
-  
+
   Procedure ApplyThemeHandle(hWnd)
     ApplyThemeToWindowHandle(hWnd)
     EnumChildWindows_(hWnd, @ApplyThemeToWindowChildren(), 0)
@@ -947,8 +944,8 @@ EndProcedure
   
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 947
-; FirstLine = 916
+; CursorPosition = 926
+; FirstLine = 917
 ; Folding = -----
 ; EnableXP
 ; DPIAware

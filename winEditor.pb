@@ -49,12 +49,13 @@ Procedure.l IsAtScrollBottomWin(EditorGadgetID)
       ; 3. Check the condition for being at the bottom.
       ; The scrollbar is at the bottom when:
       ; Current Position (nPos) + Viewport Size (nPage) >= Maximum Scrollable Value (nMax) + 1
-      Debug "SCROLL "+Str(si\nPos + si\nPage - (si\nMax -100))+" > 0 ?"
+      
+      Debug "ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ SCROLL "+Str(si\nPos + si\nPage - (si\nMax -100))+" > 0 ?"
       Debug si\nPos
       Debug si\nPage
       Debug si\nMax
-      
-      If si\nPos + si\nPage >= si\nMax - 100
+      Debug "ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ"
+      If si\nPos = 0 Or si\nPos + si\nPage >= si\nMax - 100
         ProcedureReturn #True
       EndIf
       
@@ -67,8 +68,8 @@ EndProcedure
   CompilerEndIf 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 66
-; FirstLine = 36
+; CursorPosition = 57
+; FirstLine = 30
 ; Folding = -
 ; EnableXP
 ; DPIAware
