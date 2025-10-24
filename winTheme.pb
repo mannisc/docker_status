@@ -1,6 +1,7 @@
 ﻿
 ; Theme etc-----------------------------------------------------------------------
 
+
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   
   
@@ -959,9 +960,12 @@ EndProcedure
     UpdateWindow_(hWnd)    
   EndProcedure
   
+
+  
 CompilerEndIf
-; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
-; CursorPosition = 22
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 591
+; FirstLine = 579
 ; Folding = -----
 ; EnableXP
 ; DPIAware
