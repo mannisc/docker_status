@@ -13,8 +13,8 @@ DeclareModule App
   
   #Notification_Running_TimerID = 1
   #Notification_Duration = 2500
-  #Notification_Width = 200
-  #Notification_Height = 50
+  #Notification_Width = 215
+  #Notification_Height = 46
   
   #Notification_Large_Width = 270
   #Notification_TimerID = 2
@@ -124,13 +124,6 @@ DeclareModule App
   
   Global *MainWindowGadgets.MainWindowGadgets = AllocateMemory(SizeOf(MainWindowGadgets))
   
-  
-  
-EndDeclareModule 
-
-; -------------------- GLOBAL VARIABLES --------------------
-Module App
-  
   Enumeration MonitorType
     #COMMAND
     #CONTAINER
@@ -145,6 +138,14 @@ Module App
   EndStructure
   
   Global Dim monitorConfiguration.MonitorConfiguration(#MAX_CONTAINERS-1)
+  
+  Global notificationWinID = 0
+  Global notificationRunningWinID = 0
+  
+EndDeclareModule 
+
+; -------------------- GLOBAL VARIABLES --------------------
+Module App
   
   Global patCol = 0
   Global bgCol = 0
@@ -369,7 +370,6 @@ Module App
   
   
   
-  Global notificationRunningWinID = 0
   
   Procedure ShowSystrayRunningNotification(index)
     ExamineDesktops()
@@ -378,8 +378,8 @@ Module App
     winID = OpenWindow(#PB_Any, w - #Notification_Width - 10 - 10, h - #Notification_Height - 10 - 80, #Notification_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool | #PB_Window_Invisible)
     If winID
       StickyWindow(winID, #True)
-      textGadget = TextGadget(#PB_Any, 30, 5, #Notification_Width-20, 20, "Docker Status is running", #PB_Text_Center)
-      ImageGadget(#PB_Any, 14, 0, 26, 26, ImageID(infoImageRunningID(index)), #PB_Image_Raised)
+      textGadget = TextGadget(#PB_Any, 60, 2, #Notification_Width-80, 20, "Docker Status is running", #PB_Text_Center)
+      ImageGadget(#PB_Any, 20, 0, 0, 0, ImageID(infoImageRunningID(index)), #PB_Image_Raised)
       If notificationRunningWinID <> 0
         CloseWindow(notificationRunningWinID)
         notificationRunningWinID = 0
@@ -390,9 +390,13 @@ Module App
       Repeat : Delay(1) : Until WindowEvent() = 0
       ShowWindowFadeIn(winID)
     EndIf
+    Debug "notificationRunningWinID"
+    Debug notificationRunningWinID
+    Debug winID
+    Debug  #Notification_Duration
   EndProcedure
   
-  Global notificationWinID = 0
+  
   Global notificationTextGadgetID = 0
   Global notificationImageGadgetID = 0
   
@@ -414,8 +418,10 @@ Module App
       winID = OpenWindow(#PB_Any, w - #Notification_Large_Width - 10 - 10, h - #Notification_Height - 10 - 80, #Notification_Large_Width, #Notification_Height, "", #PB_Window_BorderLess | #PB_Window_Tool | #PB_Window_Invisible)
       If winID
         StickyWindow(winID, #True)
-        notificationTextGadgetID = TextGadget(#PB_Any, 50, 5, #Notification_Large_Width-64, 20, text, #PB_Text_Center)
-        notificationImageGadgetID = ImageGadget(#PB_Any, 14, 0, 26, 26, ImageID(infoImageRunningID(index)), #PB_Image_Raised)
+
+        notificationTextGadgetID = TextGadget(#PB_Any, 60, 2, #Notification_Width-80, 20, text, #PB_Text_Center)
+        notificationImageGadgetID = ImageGadget(#PB_Any, 20, 0, 0, 0, ImageID(infoImageRunningID(index)), #PB_Image_Raised)
+        
         notificationWinID = winID
         AddWindowTimer(winID, #Notification_TimerID, #Notification_Long_Duration)
         ApplyTheme(winID)
@@ -760,6 +766,7 @@ Module App
     
     dockerExecutable$ = GetDockerExcutable()
     cmdWithUTF8Command.s = "chcp 65001 >NUL &"
+    
     
     Select monitorConfiguration(index)\type
       Case #COMMAND
@@ -1341,8 +1348,10 @@ EndModule
 ; =============================================================================
 
 DeclareModule WindowManager
+  
+  Prototype.i HandleMainEvent(Event.i, Window.i, Gadget.i)
   Prototype.i ProtoOpenWindow(*Window)
-  Prototype.i ProtoHandleEvent(*Window, Event.i, Window.i, Gadget.i)
+  Prototype.i ProtoHandleEvent(Event.i, Window.i, Gadget.i)
   Prototype.i ProtoCloseWindow(Window.i)
   
   Structure AppWindow
@@ -1359,11 +1368,13 @@ DeclareModule WindowManager
   Declare.i AddManagedWindow(Title.s, *Gadgets, *CreateProc, *HandleProc, *RemoveProc)
   Declare OpenManagedWindow(*Window.AppWindow)
   Declare CloseManagedWindow(*Window.AppWindow)
-  Declare RunEventLoop()
+  Declare RunEventLoop(*HandleMainEvent.HandleMainEvent)
 EndDeclareModule
 
 Module WindowManager
   Global NewList ManagedWindows.AppWindow()
+  
+  
   
   Procedure.i AddManagedWindow(Title.s, *Gadgets, *CreateProc, *HandleProc, *RemoveProc)
     AddElement(ManagedWindows())
@@ -1377,12 +1388,9 @@ Module WindowManager
   
   Procedure OpenManagedWindow(*Window.AppWindow)
     If Not *Window\Open
-      Debug "OPEN1"
       If *Window\CreateProc
-        Debug "OPEN2"
         *Window\WindowID = CallFunctionFast(*Window\CreateProc)
         If *Window\WindowID <> -1
-          Debug "OPEN3"
           *Window\Open = #True
         EndIf
         ProcedureReturn *Window\WindowID
@@ -1400,7 +1408,7 @@ Module WindowManager
     EndIf
   EndProcedure
   
-  Procedure RunEventLoop()
+  Procedure RunEventLoop(*HandleMainEvent.HandleMainEvent)
     Protected Event.i
     Protected EventWindow.i
     Protected EventGadget.i
@@ -1409,34 +1417,30 @@ Module WindowManager
     Protected OpenedWindowExists.i
     
     While KeepRunning
+      
       Delay(1)
       Event = WindowEvent()
+      
       If Event <> 0
         EventWindow = EventWindow()
         EventGadget = EventGadget()
-        OpenedWindowExists = #False
-        Debug ""
-        Debug Event
-        Debug EventWindow    
-        Debug EventGadget
-        
-        ForEach ManagedWindows()
-          If ManagedWindows()\Open 
-            Debug  Str(EventWindow)+" = "+Str(ManagedWindows()\WindowID)
-            If EventWindow = ManagedWindows()\WindowID
-              Debug "EVENT"
-              If ManagedWindows()\HandleProc
-                Debug "HandleProc"
-                KeepWindow = CallFunctionFast(ManagedWindows()\HandleProc, Event, EventWindow, EventGadget)
+        If *HandleMainEvent( Event, EventWindow, EventGadget) = 0
+          ForEach ManagedWindows()
+            If ManagedWindows()\Open 
+              If EventWindow = ManagedWindows()\WindowID And  ManagedWindows()\HandleProc
+                KeepWindow = CallFunctionFast(ManagedWindows()\HandleProc, Event, EventGadget)
                 If Not KeepWindow
                   DeleteElement(ManagedWindows())
                   Break
                 EndIf
               EndIf
             EndIf
-          EndIf
-        Next
+          Next
+          
+        EndIf 
       EndIf 
+      
+      OpenedWindowExists = #False
       ForEach ManagedWindows()
         If ManagedWindows()\Open
           OpenedWindowExists = #True
@@ -1448,9 +1452,7 @@ Module WindowManager
         KeepRunning = #False
       EndIf
     Wend
-    Debug "XXXX"
-    Debug OpenedWindowExists
-    Debug ListSize(ManagedWindows())
+    
   EndProcedure
 EndModule
 
@@ -1459,13 +1461,6 @@ EndModule
 
 Global *AddMonitorDialog 
 
-
-
-
-
-
-
-
 ; =============================================================================
 ; ADD MONITOR DIALOG MODULE
 ; =============================================================================
@@ -1473,10 +1468,6 @@ Global *AddMonitorDialog
 DeclareModule AddMonitorDialog
   UseModule App
   UseModule WindowManager
-  
-  Declare.i CreateWindow()
-  Declare.i HandleEvent( Event.i, Window.i, Gadget.i)
-  Declare RemoveWindow()
   Declare.i Open()
 EndDeclareModule
 
@@ -1509,18 +1500,16 @@ Module AddMonitorDialog
       bgCol = RGB(200, 200, 200)
       SetGadgetColor(*Gadgets\ContainerColorPreview, #PB_Gadget_BackColor, bgCol)
       DisableGadget(*Gadgets\BtnOk, #True)
-      
       StickyWindow(1, #True)
       ApplyTheme(1)
       Repeat : Delay(1) : Until WindowEvent() = 0
       ShowWindowFadeIn(1)
-      
       ProcedureReturn 1
     EndIf
     ProcedureReturn -1
   EndProcedure
   
-  Procedure.i HandleEvent(Event.i, Window.i, Gadget.i)
+  Procedure.i HandleEvent(Event.i, Gadget.i)
     Protected closeWindow = #False
     
     Select Event
@@ -1600,9 +1589,6 @@ DeclareModule EditMonitorDialog
   UseModule App
   UseModule WindowManager
   
-  Declare.i CreateWindow()
-  Declare.i HandleEvent(Event.i, Window.i, Gadget.i)
-  Declare RemoveWindow()
   Declare Open(index.i)
 EndDeclareModule
 
@@ -1650,7 +1636,7 @@ Module EditMonitorDialog
     ProcedureReturn -1
   EndProcedure
   
-  Procedure.i HandleEvent(Event.i, Window.i, Gadget.i)
+  Procedure.i HandleEvent(Event.i, Gadget.i)
     
     
     Protected closeWindow = #False
@@ -1721,9 +1707,7 @@ DeclareModule AddPatternDialog
   UseModule App
   UseModule WindowManager
   
-  Declare.i CreateWindow()
-  Declare.i HandleEvent(Event.i, Window.i, Gadget.i)
-  Declare RemoveWindow()
+  
   Declare Open(monitorIndex.i)
 EndDeclareModule
 
@@ -1776,8 +1760,8 @@ Module AddPatternDialog
     ProcedureReturn -1
   EndProcedure
   
-  Procedure.i HandleEvent(Event.i, Window.i, Gadget.i)
-
+  Procedure.i HandleEvent(Event.i, Gadget.i)
+    
     Protected closeWindow = #False
     
     Select Event
@@ -1852,9 +1836,7 @@ DeclareModule EditPatternDialog
   UseModule App
   UseModule WindowManager
   
-  Declare.i CreateWindow()
-  Declare.i HandleEvent(Event.i, Window.i, Gadget.i)
-  Declare RemoveWindow()
+  
   Declare Open(monitorIdx.i, patternIdx.i)
 EndDeclareModule
 
@@ -1910,8 +1892,8 @@ Module EditPatternDialog
     ProcedureReturn -1
   EndProcedure
   
-  Procedure.i HandleEvent(Event.i, Window.i, Gadget.i)
-
+  Procedure.i HandleEvent(Event.i, Gadget.i)
+    
     Protected closeWindow = #False
     
     Select Event
@@ -1993,10 +1975,6 @@ EndModule
 DeclareModule EditPatternsDialog
   UseModule App
   UseModule WindowManager
-  
-  Declare.i CreateWindow()
-  Declare.i HandleEvent(Event.i, Window.i, Gadget.i)
-  Declare RemoveWindow()
   Declare Open(index.i)
 EndDeclareModule
 
@@ -2039,7 +2017,7 @@ Module EditPatternsDialog
     ProcedureReturn -1
   EndProcedure
   
-  Procedure.i HandleEvent(Event.i, Window.i, Gadget.i)
+  Procedure.i HandleEvent(Event.i, Gadget.i)
     
     Protected closeWindow = #False
     
@@ -2114,10 +2092,6 @@ EndModule
 DeclareModule MainWindow
   UseModule App
   UseModule WindowManager
-  
-  Declare.i CreateWindow()
-  Declare.i HandleEvent( Event.i, Window.i, Gadget.i)
-  Declare RemoveWindow()
   Declare.i Open()
 EndDeclareModule
 
@@ -2150,41 +2124,9 @@ Module MainWindow
   EndProcedure
   
   Procedure.i HandleEvent( Event.i, Window.i, Gadget.i)
-    Debug Event
     Select Event
-      Case #PB_Event_SysTray
-        Protected systrayId = EventGadget()
-        For i = 0 To containerCount-1
-          If systrayId = trayID(i)
-            ShowLogs(i)
-            Break
-          EndIf
-        Next
-        
-      Case #PB_Event_Menu
-        Protected menuEvent = EventMenu()
-        If menuEvent >= 1000
-          Protected menuContainerIndex = Mod(menuEvent/10, 10)
-          Protected menuId = menuEvent - 1000 - menuContainerIndex*10
-          Select menuId
-            Case 0
-              HideWindow(Window, #False)
-              CompilerIf #PB_Compiler_OS = #PB_OS_Windows : SetOverlayIcon(WindowID(Window), menuContainerIndex) : CompilerEndIf
-            Case 1
-              ShowLogs(menuContainerIndex)
-            Case 2
-              For i = 0 To containerCount-1
-                If dockerProgramID(i) <> 0
-                  CloseProgram(dockerProgramID(i))
-                  dockerProgramID(i) = 0
-                EndIf
-              Next
-              ProcedureReturn #False
-          EndSelect
-        EndIf
         
       Case #PB_Event_Gadget
-        Debug "GADGET"
         Protected currentContainerIndex = GetGadgetState(*Gadgets\ContainerList)
         Select Gadget
           Case *Gadgets\ContainerList
@@ -2248,17 +2190,6 @@ Module MainWindow
           ProcedureReturn #False
         EndIf
         
-      Case #PB_Event_Timer
-        If notificationRunningWinID <> 0 And Window = notificationRunningWinID
-          RemoveWindowTimer(notificationRunningWinID, #Notification_Running_TimerID)
-          CloseWindow(notificationRunningWinID)
-          notificationRunningWinID = 0
-        EndIf
-        If notificationWinID <> 0 And Window = notificationWinID
-          RemoveWindowTimer(notificationWinID, #Notification_TimerID)
-          CloseWindow(notificationWinID)
-          notificationWinID = 0
-        EndIf
     EndSelect
     
     For i = 0 To containerCount-1
@@ -2286,41 +2217,122 @@ EndModule
 ; MAIN APPLICATION STARTUP
 ; =============================================================================
 
-Procedure StartApp()
-  UseModule App
-  UseModule WindowManager
-  UseModule MainWindow
+DeclareModule Execute
+  Declare StartApp()
+EndDeclareModule
+Module Execute
   
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    IsDarkModeActive()
-    SetWindowCallback(@WindowCallback())
-  CompilerEndIf
+  Procedure.i HandleMainEvent( Event.i, Window.i, Gadget.i)
+    UseModule App
+    Select Event
+      Case #PB_Event_SysTray
+        Protected systrayId = EventGadget()
+        For i = 0 To containerCount-1
+          If systrayId = trayID(i)
+            ShowLogs(i)
+            Break
+          EndIf
+        Next
+        
+      Case #PB_Event_Menu
+        Protected menuEvent = EventMenu()
+        If menuEvent >= 1000
+          Protected menuContainerIndex = Mod(menuEvent/10, 10)
+          Protected menuId = menuEvent - 1000 - menuContainerIndex*10
+          Select menuId
+            Case 0
+              HideWindow(Window, #False)
+              CompilerIf #PB_Compiler_OS = #PB_OS_Windows : SetOverlayIcon(WindowID(Window), menuContainerIndex) : CompilerEndIf
+            Case 1
+              ShowLogs(menuContainerIndex)
+            Case 2
+              For i = 0 To containerCount-1
+                If dockerProgramID(i) <> 0
+                  CloseProgram(dockerProgramID(i))
+                  dockerProgramID(i) = 0
+                EndIf
+              Next
+              ProcedureReturn #False
+          EndSelect
+        EndIf
+        
+      Case #PB_Event_Timer
+        Debug "notificationRunningWinID FIRED ########"
+        Debug Window
+        Debug notificationRunningWinID
+        
+        If notificationRunningWinID <> 0 And Window = notificationRunningWinID
+          RemoveWindowTimer(notificationRunningWinID, #Notification_Running_TimerID)
+          CloseWindow(notificationRunningWinID)
+          notificationRunningWinID = 0
+        EndIf
+        If notificationWinID <> 0 And Window = notificationWinID
+          RemoveWindowTimer(notificationWinID, #Notification_TimerID)
+          CloseWindow(notificationWinID)
+          notificationWinID = 0
+        EndIf
+    EndSelect
+  EndProcedure 
   
-  LoadSettings()
+  
+  Procedure StartApp()
+    UseModule App
+    UseModule WindowManager
+    UseModule MainWindow
+    index = 0
+    
+    monitorConfiguration(index)\type = #COMMAND
+    
+    monitorConfiguration(index)\content =  "docker exec -i my-app /bin/sh -c " + Chr(34) + 
+                                           "cd /app && ls -la && npx ng serve --host 0.0.0.0 --poll=2000" + Chr(34)
+    
+    monitorConfiguration(index)\content =  "docker exec -it my-app /bin/sh" + Chr(10) +
+                                           "cd /app" + Chr(10) +
+                                           "ls -la" + Chr(10) +
+                                           "npx ng serve --host 0.0.0.0 --poll=2000" + Chr(10) +
+                                           "exit" + Chr(10) +
+                                           "echo Done"
+    
+    monitorConfiguration(index)\content = "docker exec -it my-app /bin/sh" + Chr(10) +
+                                          "cd /app" + Chr(10) +
+                                          "ls -la" + Chr(10) +
+                                          "npx ng build" + Chr(10) +
+                                          "exit" + Chr(10) +
+                                          "echo Done"
+    
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      IsDarkModeActive()
+      SetWindowCallback(@WindowCallback())
+    CompilerEndIf
+    
+    LoadSettings()
+    
+    MainWindow::Open()
+    RunEventLoop(@HandleMainEvent())
+    
+    ; Cleanup
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      ForEach logWindows()
+        If containterMetaData(logWindows()\containerIndex)\overlayIconHandle
+          DestroyIcon_(containterMetaData(logWindows()\containerIndex)\overlayIconHandle)
+        EndIf
+      Next
+      For i = 0 To containerCount-1
+        If infoImageId(i)
+          DestroyIcon_(infoImageId(i))
+        EndIf
+      Next
+    CompilerEndIf
+  EndProcedure
   
   
-  MainWindow::Open()
-  
-  RunEventLoop()
-  
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    ForEach logWindows()
-      If containterMetaData(logWindows()\containerIndex)\overlayIconHandle
-        DestroyIcon_(containterMetaData(logWindows()\containerIndex)\overlayIconHandle)
-      EndIf
-    Next
-    For i = 0 To containerCount-1
-      If infoImageId(i)
-        DestroyIcon_(infoImageId(i))
-      EndIf
-    Next
-  CompilerEndIf
-EndProcedure
+EndModule
 
+
+UseModule Execute
 StartApp()
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2042
-; FirstLine = 2039
+; CursorPosition = 14
 ; Folding = -------------------
 ; Optimizer
 ; EnableThread
