@@ -2332,7 +2332,8 @@ EndModule
 UseModule Execute
 StartApp()
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 14
+; CursorPosition = 1581
+; FirstLine = 1581
 ; Folding = -------------------
 ; Optimizer
 ; EnableThread
