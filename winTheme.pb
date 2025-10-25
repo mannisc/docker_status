@@ -17,7 +17,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     pf\dwMask = #PFM_LINESPACING
     pf\bLineSpacingRule = 4 ; exact line spacing
     pf\dyLineSpacing = heightPixels * 15  ; 1 pixel ≈ 15 twips
-    Debug SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
+    SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
   EndProcedure
   
   
@@ -964,8 +964,8 @@ EndProcedure
   
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 591
-; FirstLine = 579
+; CursorPosition = 19
+; FirstLine = 10
 ; Folding = -----
 ; EnableXP
 ; DPIAware

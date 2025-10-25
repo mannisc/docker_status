@@ -1,12 +1,10 @@
 ﻿; VS Code-style vertical tab bar interface
 ; Color scheme matching VS Code Dark theme
 
-
 DeclareModule App
   #WIN_MAIN = 0
   #CNT_CONTENT = 2
   #EDT_CMD = 200
-  #EXP_DIR = 300
   #BTN_COLOR = 201
   #CHK_NOTIFY = 202
   #CNT_COLORPREVIEW = 203
@@ -21,120 +19,26 @@ DeclareModule App
   Global COLOR_TEXT = RGB(204, 204, 204)
   Global COLOR_EDITOR_BG = COLOR_BG_DARK
   Global COLOR_EDITOR_TEXT = RGB(212, 212, 212)
-  Declare NormalResizeGadget(Gadget, x.f, y.f, width.f, height.f,parentsRoundingDeltaX.f = 0,parentsDeltaY.f = 0)
-  Declare AppResizeGadget(Gadget, x.f, y.f, width.f, height.f)
-  Global DPI_Scale.f
-  
-  
+  Declare AppResizeGadget(Gadget, x.f, y.f, w.f, h.f)
 EndDeclareModule
 
 
 Module App
-  
-  ExamineDesktops()
-  Global DPI_Scale.f = DesktopResolutionX()
-  
-  Structure FLOATPOINT
-    x.l
-    y.l
-    
-  EndStructure 
-  
-  Global NewMap GadgetPosition.FLOATPOINT ()
-  
-  Procedure NormalResizeGadget(Gadget, x.f, y.f, width.f, height.f,parentsRoundingDeltaX.f = 0,parentsDeltaY.f = 0)
-    Protected hWnd = GadgetID(Gadget)
-    Protected hParent = GetParent_(hWnd)
-    
-    Protected flags = #SWP_NOACTIVATE | #SWP_NOZORDER |#SWP_NOREDRAW |#SWP_NOCOPYBITS|#SWP_NOOWNERZORDER|#SWP_NOSENDCHANGING
-    Protected currentX.f, currentY.f, currentW.f, currentH.f
-    
-    Protected rect.RECT
-    
-    Protected newX.f, newY.f, newW.f, newH.f
-    
-    
-    ; Get current position and size of the gadget
-    If GetWindowRect_(hWnd, @rect)
-      point.POINT
-      point\x =  rect\left
-      point\y =  rect\top
-      
-      MapWindowPoints_(#Null, hParent, @point, 2)
-      currentX = point\x
-      currentY = point\y
-      currentW = rect\right-rect\left
-      currentH = rect\bottom-rect\top
-    Else
-      currentX = 0.0
-      currentY = 0.0
-      currentW = 0.0
-      currentH = 0.0
-    EndIf
-    
-    
-    
-    ; Use current values for #PB_Ignore, apply DPI scaling otherwise
-    If DPI_Scale <= 0
-      DPI_Scale = 1.0
-    EndIf
-    
-    If x = #PB_Ignore
-      newX = currentX
-    Else
-      newX = x * DPI_Scale
-    EndIf
-    If y = #PB_Ignore
-      newY = currentY
-    Else
-      newY = y * DPI_Scale
-    EndIf
-    If width = #PB_Ignore
-      newW = currentW
-    Else
-      newW = width * DPI_Scale
-    EndIf
-    If height = #PB_Ignore
-      newH = currentH
-    Else
-      newH = height * DPI_Scale
-    EndIf
-    
-    ; Round coordinates, but track rounding differences for consistency
-    
-    newX  +parentsRoundingDeltaX
-    newY + parentsDeltaY
-    newX = Round(newX, #PB_Round_Nearest)
-    newY = Round(newY, #PB_Round_Nearest)
-    newW = Round(newW, #PB_Round_Nearest)
-    newH = Round(newH, #PB_Round_Nearest)
-    
- 
-    SetWindowPos_(GadgetID(Gadget), #Null, newX, newY, newW, newH, flags)
-
-    InvalidateRect_(GadgetID(Gadget), #Null, #False)
-    
-    ProcedureReturn
-  EndProcedure
-  
-  
-  
-  Procedure  AppResizeGadget(Gadget, x.f, y.f, width.f, height.f)
-    
+  Procedure AppResizeGadget(Gadget, x.f, y.f, w.f, h.f)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       Protected hWnd = GadgetID(Gadget)
+      ; Pause redrawing
       SendMessage_(hWnd, #WM_SETREDRAW, 0, 0)
-      NormalResizeGadget(Gadget, x, y, width, height)
+      ; Resize
+      ResizeGadget(Gadget, Round(x,#PB_Round_Nearest),Round(y,#PB_Round_Nearest),Round(w,#PB_Round_Nearest),Round(h,#PB_Round_Nearest))
+      ; Resume redrawing and force repaint
       SendMessage_(hWnd, #WM_SETREDRAW, 1, 0)
       RedrawWindow_(hWnd, 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
     CompilerElse
-      NormalResizeGadget(Gadget, Round(x,#PB_Round_Down),Round(y,#PB_Round_Down),Round(width,#PB_Round_Down),Round(height,#PB_Round_Down))
+      ResizeGadget(Gadget, Round(x,#PB_Round_Nearest),Round(y,#PB_Round_Nearest),Round(w,#PB_Round_Nearest),Round(h,#PB_Round_Nearest))
     CompilerEndIf
   EndProcedure
 EndModule
-
-
-
 
 ;- ===== Vertical TabBar Module =====
 DeclareModule VerticalTabBar
@@ -145,12 +49,10 @@ DeclareModule VerticalTabBar
   EndStructure
   
   Structure VerticalTabBarData
-    Window.i 
-    ContentContainer.i
-    SidebarContainer.i
-    InnerSidebarContainer.i
-    
-    InnerContentContainer.i
+    window.i 
+    OuterContentContainerID.i
+    SidebarContainerGadgetID.i
+    ContentContainerID.i
     ContentX.i
     ContentY.i
     ContentWidth.i
@@ -160,7 +62,7 @@ DeclareModule VerticalTabBar
     IsExpanded.i
     ActiveTabIndex.i
     TabCount.i
-    HamburgerGadget.i
+    HamburgerGadgetID.i
     Array TabGadgets.i(0)
     Array TabConfigs.TabConfig(0)
     *ResizeCallback
@@ -170,22 +72,16 @@ DeclareModule VerticalTabBar
     AnimationLineWidth.f
     CurrentAnimationLineWidth.f
     AnimationRunning.i
-    ParentsRoundingDeltaX.f 
-    
   EndStructure
   
   #PB_Event_RedrawHamburger = #PB_Event_FirstCustomValue
   
   Declare.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0)
-  
-  Declare DoResize(*tabBar.VerticalTabBarData,externalResize = #False )
   Declare Toggle(*tabBar.VerticalTabBarData)
-  Declare Resize(*tabBar.VerticalTabBarData,contentWidth.i, contentHeight.i,externalResize = #False )
   Declare SetActiveTab(*tabBar.VerticalTabBarData, tabIndex.i)
   Declare HandleEvent(*tabBar.VerticalTabBarData, eventGadget.i, event.i)
   Declare GetWidth(*tabBar.VerticalTabBarData)
-  Declare GetContentContainer(*tabBar.VerticalTabBarData)
-  
+  Declare GetContentContainerID(*tabBar.VerticalTabBarData)
 EndDeclareModule
 
 Module VerticalTabBar
@@ -206,7 +102,7 @@ Module VerticalTabBar
   Global menuFont
   
   Procedure DrawHamburgerButton(*tabBar.VerticalTabBarData)
-    If StartDrawing(CanvasOutput(*tabBar\HamburgerGadget))
+    If StartDrawing(CanvasOutput(*tabBar\HamburgerGadgetID))
       canvasW = OutputWidth()
       canvasH = OutputHeight()
       
@@ -314,21 +210,21 @@ Module VerticalTabBar
     ; Shrink phase
     For i = 0 To frames - 1
       *tabBar\CurrentAnimationLineWidth = startWidth + (endWidth - startWidth) * i / frames
-      PostEvent(#PB_Event_RedrawHamburger, *tabBar\window, *tabBar\HamburgerGadget)
+      PostEvent(#PB_Event_RedrawHamburger, *tabBar\window, *tabBar\HamburgerGadgetID)
       Delay(frameDelay)
     Next
     
     ; Expand phase
     For i = 0 To frames - 1
       *tabBar\CurrentAnimationLineWidth = endWidth + (startWidth - endWidth) * i / frames
-      PostEvent(#PB_Event_RedrawHamburger, *tabBar\window, *tabBar\HamburgerGadget)
+      PostEvent(#PB_Event_RedrawHamburger, *tabBar\window, *tabBar\HamburgerGadgetID)
       Delay(frameDelay)
     Next
     
     ; Reset animation state
     *tabBar\CurrentAnimationLineWidth = startWidth
     *tabBar\AnimationRunning = #False
-    PostEvent(#PB_Event_RedrawHamburger, *tabBar\window, *tabBar\HamburgerGadget)
+    PostEvent(#PB_Event_RedrawHamburger, *tabBar\window, *tabBar\HamburgerGadgetID)
   EndProcedure
   
   Procedure RedrawAllTabs(*tabBar.VerticalTabBarData)
@@ -350,6 +246,7 @@ Module VerticalTabBar
     Protected *tabBar.VerticalTabBarData = AllocateMemory(SizeOf(VerticalTabBarData))
     Protected i.i, tabCount.i
     
+    
     DPI_Scale = User_DPI_Scale
     
     CompilerSelect #PB_Compiler_OS
@@ -362,22 +259,25 @@ Module VerticalTabBar
     CompilerEndSelect
     menuFont =  LoadFont(#PB_Any , "Segoe UI", menuFontSize*DPI_Scale ,#PB_Font_HighQuality)
     
-    *tabBar\Window = window
-    *tabBar\SidebarWidth = Round(sidebarWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\SidebarExpandedWidth = Round(expandedWidth * DPI_Scale,#PB_Round_Down)
+    *tabBar\SidebarWidth = Round(sidebarWidth * DPI_Scale,#PB_Round_Nearest)
+    *tabBar\SidebarExpandedWidth = Round(expandedWidth * DPI_Scale,#PB_Round_Nearest)
     *tabBar\IsExpanded = #False
     *tabBar\ActiveTabIndex = 0
     *tabBar\ContentX = x + *tabBar\SidebarWidth
     *tabBar\ContentY = y
-    *tabBar\ContentWidth = Round(contentWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\ContentHeight = Round(height * DPI_Scale,#PB_Round_Down)
+    *tabBar\ContentWidth = Round(contentWidth * DPI_Scale,#PB_Round_Nearest)
+    *tabBar\ContentHeight = Round(height * DPI_Scale,#PB_Round_Nearest)
     *tabBar\HoveredTabIndex = -1
     *tabBar\HamburgerHovered = #False
-    *tabBar\AnimationLineWidth = Round(14.0 * DPI_Scale,#PB_Round_Down) ; Initial line width
+    *tabBar\AnimationLineWidth = Round(14.0 * DPI_Scale,#PB_Round_Nearest) ; Initial line width
     *tabBar\CurrentAnimationLineWidth = *tabBar\AnimationLineWidth
     *tabBar\AnimationRunning = #False
     *tabBar\window = window
     
+    Debug "contentWidth"
+    Debug  contentWidth
+    Debug  contentWidth * DPI_Scale
+    Debug ""
     
     ; Count tabs
     tabCount = ListSize(tabConfigs()) 
@@ -394,13 +294,13 @@ Module VerticalTabBar
     Next
     
     ; Create sidebar container
-    *tabBar\SidebarContainer = ContainerGadget(#PB_Any, x, y, *tabBar\SidebarWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
-    *tabBar\InnerSidebarContainer  = ContainerGadget(#PB_Any, 0, 0, *tabBar\SidebarExpandedWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
-    SetGadgetColor(*tabBar\InnerSidebarContainer , #PB_Gadget_BackColor, COLOR_SIDEBAR)
+    *tabBar\SidebarContainerGadgetID = ContainerGadget(#PB_Any, x, y, *tabBar\SidebarWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+    innerSidebarContainerGadgetID = ContainerGadget(#PB_Any, 0, 0, *tabBar\SidebarExpandedWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+    SetGadgetColor(innerSidebarContainerGadgetID, #PB_Gadget_BackColor, COLOR_SIDEBAR)
     
     ; Create hamburger button (square, width = height = sidebarWidth)
-    *tabBar\HamburgerGadget = CanvasGadget(#PB_Any, 0, 5 * DPI_Scale, *tabBar\SidebarWidth, *tabBar\SidebarWidth)
-    GadgetToolTip(*tabBar\HamburgerGadget, "Toggle Menu")
+    *tabBar\HamburgerGadgetID = CanvasGadget(#PB_Any, 0, 5 * DPI_Scale, *tabBar\SidebarWidth, *tabBar\SidebarWidth)
+    GadgetToolTip(*tabBar\HamburgerGadgetID, "Toggle Menu")
     
     ; Create tab buttons
     Dim *tabBar\TabGadgets(tabCount - 1)
@@ -415,9 +315,9 @@ Module VerticalTabBar
     CloseGadgetList()
     
     ; Create content container
-    *tabBar\ContentContainer = ContainerGadget(#PB_Any, x + *tabBar\SidebarWidth, y, *tabBar\ContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
-    *tabBar\InnerContentContainer = ContainerGadget(#PB_Any, 0, 0, *tabBar\ContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
-    SetGadgetColor(*tabBar\InnerContentContainer, #PB_Gadget_BackColor, COLOR_BG_DARK)
+    *tabBar\OuterContentContainerID = ContainerGadget(#PB_Any, x + *tabBar\SidebarWidth, y, *tabBar\ContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+    *tabBar\ContentContainerID = ContainerGadget(#PB_Any, 0, 0, *tabBar\ContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+    SetGadgetColor(*tabBar\ContentContainerID, #PB_Gadget_BackColor, COLOR_BG_DARK)
     
     CloseGadgetList()
     CloseGadgetList()
@@ -427,89 +327,49 @@ Module VerticalTabBar
     ; Draw initial state
     RedrawAllTabs(*tabBar)
     
-    
-    ; In VerticalTabBar::Create, add WS_CLIPCHILDREN to containers
-    Protected hSidebar = GadgetID(*tabBar\SidebarContainer)
-    SetWindowLongPtr_(hSidebar, #GWL_STYLE, GetWindowLongPtr_(hSidebar, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    Protected hContent = GadgetID(*tabBar\ContentContainer)
-    SetWindowLongPtr_(hContent, #GWL_STYLE, GetWindowLongPtr_(hContent, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    Protected hInnerSidebar = GadgetID(*tabBar\InnerSidebarContainer)
-    SetWindowLongPtr_(hInnerSidebar, #GWL_STYLE, GetWindowLongPtr_(hInnerSidebar, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    Protected hInnerContent = GadgetID(*tabBar\InnerContentContainer)
-    SetWindowLongPtr_(hInnerContent, #GWL_STYLE, GetWindowLongPtr_(hInnerContent, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    ;     
-    ; hwnd = GadgetID(*tabBar\SidebarContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)  
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    ; hwnd = GadgetID(*tabBar\InnerContentContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)  
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    ; 
-    ;  hwnd = GadgetID(*tabBar\ContentContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    ;  hwnd = GadgetID(*tabBar\InnerContentContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    
     ProcedureReturn *tabBar
   EndProcedure
   
-  Procedure SmoothResizeGadget(Gadget, x.f, y.f, width.f, height.f)
+  Procedure SmoothResizeGadget(Gadget, x.f, y.f, w.f, h.f)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       Protected hWnd = GadgetID(Gadget)
       ; Pause redrawing
       SendMessage_(hWnd, #WM_SETREDRAW, 0, 0)
       ; Resize
-      NormalResizeGadget(Gadget, Round(x,#PB_Round_Down),Round(y,#PB_Round_Down),Round(width,#PB_Round_Down),Round(height,#PB_Round_Down))
+      ResizeGadget(Gadget, Round(x,#PB_Round_Nearest),Round(y,#PB_Round_Nearest),Round(w,#PB_Round_Nearest),Round(h,#PB_Round_Nearest))
       ; Resume redrawing and force repaint
       SendMessage_(hWnd, #WM_SETREDRAW, 1, 0)
       RedrawWindow_(hWnd, 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
     CompilerElse
-      NormalResizeGadget(Gadget, Round(x,#PB_Round_Down),Round(y,#PB_Round_Down),Round(width,#PB_Round_Down),Round(height,#PB_Round_Down))
+      ResizeGadget(Gadget, Round(x,#PB_Round_Nearest),Round(y,#PB_Round_Nearest),Round(w,#PB_Round_Nearest),Round(h,#PB_Round_Nearest))
     CompilerEndIf
   EndProcedure
+
   
-  Structure TabBarDimensions 
-    newWidth.l
-    newContentX.l
-    newContentWidth.l
-  EndStructure 
-  
-  
-  Procedure Refresh(*tabBar.VerticalTabBarData)
-    RedrawWindow_(GadgetID(*tabBar\SidebarContainer), 0, 0,#RDW_ERASE | #RDW_INVALIDATE  | #RDW_UPDATENOW)
-    RedrawWindow_(GadgetID(*tabBar\ContentContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE  | #RDW_UPDATENOW)
-    RedrawWindow_(GadgetID(*tabBar\InnerSidebarContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
-    RedrawWindow_(GadgetID(*tabBar\InnerContentContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
-    InvalidateRect_(GadgetID(*tabBar\ContentContainer), #Null, #False)
-    InvalidateRect_(GadgetID(*tabBar\InnerContentContainer), #Null, #False)
-    UpdateWindow_(GadgetID(*tabBar\ContentContainer))
-    UpdateWindow_(GadgetID(*tabBar\InnerContentContainer))
-  EndProcedure
-  
-  
-  Procedure DoResize(*tabBar.VerticalTabBarData,externalResize = #False)
+  Procedure Toggle(*tabBar.VerticalTabBarData)
+    Protected newWidth.i, i.i, newContentX.f, newContentWidth.f
+    
+    ; Start animation BEFORE toggling (Win11 style)
+    If Not *tabBar\AnimationRunning
+      *tabBar\AnimationRunning = #True
+      *tabBar\AnimationThread = CreateThread(@AnimationThread(), *tabBar)
+    EndIf
+    
+    *tabBar\IsExpanded = 1 - *tabBar\IsExpanded
+    
+    
     sidebarDifference = *tabBar\SidebarExpandedWidth - *tabBar\SidebarWidth
-    parentsRoundingDeltaX.f
+    
     If *tabBar\IsExpanded
       newWidth = *tabBar\SidebarExpandedWidth
       newContentX =  *tabBar\ContentX + sidebarDifference
       newContentWidth = *tabBar\ContentWidth - sidebarDifference
-      parentsRoundingDeltaX = *tabBar\SidebarExpandedWidth* DPI_Scale -Round(*tabBar\SidebarExpandedWidth *DPI_Scale,#PB_Round_Nearest)
-      
     Else
       newWidth = *tabBar\SidebarWidth
       newContentX =  *tabBar\ContentX 
       newContentWidth = *tabBar\ContentWidth 
-      parentsRoundingDeltaX = *tabBar\SidebarWidth* DPI_Scale -Round(*tabBar\SidebarWidth* DPI_Scale,#PB_Round_Nearest)
     EndIf
     
-    *tabBar\ParentsRoundingDeltaX = parentsRoundingDeltaX
     ; Update tooltips based on expansion state
     For i = 0 To *tabBar\TabCount - 1
       If *tabBar\IsExpanded
@@ -522,63 +382,16 @@ Module VerticalTabBar
     
     ; ---- call user supplied handler ----
     If *tabBar\ResizeCallback
-      CallFunctionFast(*tabBar\ResizeCallback, *tabBar, *tabBar\ActiveTabIndex, newContentWidth,@parentsRoundingDeltaX )
+      CallFunctionFast(*tabBar\ResizeCallback, *tabBar, *tabBar\ActiveTabIndex, @newContentWidth)
     EndIf
     
     
     ; ---- existing resize logic ----
-    
-    NormalResizeGadget(*tabBar\SidebarContainer, #PB_Ignore, #PB_Ignore, newWidth, *tabBar\ContentHeight,0,0)
-
-    NormalResizeGadget(*tabBar\ContentContainer, newContentX, #PB_Ignore, newContentWidth, *tabBar\ContentHeight,0,0)
-    
-    NormalResizeGadget(*tabBar\InnerContentContainer, #PB_Ignore, #PB_Ignore, newContentWidth, *tabBar\ContentHeight,0,0)
-    
-    If Not externalResize
-      Refresh(*tabBar.VerticalTabBarData)
-    EndIf 
-    tabBarDimensions.TabBarDimensions
-    tabBarDimensions\newWidth = newWidth
-    tabBarDimensions\newContentX = newContentX
-    tabBarDimensions\newContentWidth = newContentWidth
-    
-    ProcedureReturn newContentWidth
-  EndProcedure
-  
-  
-  
-  Procedure Toggle(*tabBar.VerticalTabBarData)
-    Protected newWidth.i, i.i, newContentX.f, newContentWidth.f
-    
-    ; Start animation BEFORE toggling (Win11 style)
-    If Not *tabBar\AnimationRunning
-      *tabBar\AnimationRunning = #True
-      *tabBar\AnimationThread = CreateThread(@AnimationThread(), *tabBar)
-    EndIf
-    
-    *tabBar\IsExpanded = 1 - *tabBar\IsExpanded
-    DoResize(*tabBar)
+    AppResizeGadget(*tabBar\OuterContentContainerID, newContentX, #PB_Ignore, newContentWidth, #PB_Ignore)
+    AppResizeGadget(*tabBar\SidebarContainerGadgetID, #PB_Ignore, #PB_Ignore, newWidth, #PB_Ignore)
     
     RedrawAllTabs(*tabBar)
-    
-    
   EndProcedure
-  
-  
-  Procedure Resize(*tabBar.VerticalTabBarData,contentWidth.i, contentHeight.i,externalResize = #False )
-    *tabBar\ContentWidth = Round(contentWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\ContentHeight = Round(contentHeight * DPI_Scale,#PB_Round_Down)
-    
-    newContentWidth = DoResize(*tabBar,externalResize)
-    NormalResizeGadget(*tabBar\InnerSidebarContainer, #PB_Ignore,#PB_Ignore, #PB_Ignore, *tabBar\ContentHeight,0,0)
-    ;NormalResizeGadget(*tabBar\InnerContentContainer, #PB_Ignore, #PB_Ignore, newContentWidth, *tabBar\ContentHeight0,0,hDefer)
-    ;NormalResizeGadget(*tabBar\ContentContainer, #PB_Ignore, #PB_Ignore, newContentWidth, *tabBar\ContentHeight0,0,hDefer)
-    
-    
-  EndProcedure
-  
-  
-  
   
   Procedure SetActiveTab(*tabBar.VerticalTabBarData, tabIndex.i)
     If tabIndex >= 0 And tabIndex < *tabBar\TabCount
@@ -586,23 +399,21 @@ Module VerticalTabBar
       *tabBar\ActiveTabIndex = tabIndex
       DrawTabButton(*tabBar, *tabBar\ActiveTabIndex, #True)
     EndIf
-    DoResize(*tabBar)
   EndProcedure
   
   Procedure HandleEvent(*tabBar.VerticalTabBarData, eventGadget.i, event.i)
-    
     Protected i.i
     Protected callbackProc
     Protected isActive.i
     
     ; Handle custom redraw event
-    If event = #PB_Event_RedrawHamburger And eventGadget = *tabBar\HamburgerGadget
+    If event = #PB_Event_RedrawHamburger And eventGadget = *tabBar\HamburgerGadgetID
       DrawHamburgerButton(*tabBar)
       ProcedureReturn #True
     EndIf
     
     ; Check hamburger button
-    If eventGadget = *tabBar\HamburgerGadget
+    If eventGadget = *tabBar\HamburgerGadgetID
       If EventType() = #PB_EventType_LeftClick
         Toggle(*tabBar)
       ElseIf EventType() = #PB_EventType_MouseEnter
@@ -650,8 +461,6 @@ Module VerticalTabBar
     ProcedureReturn #False
   EndProcedure
   
-  
-  
   Procedure GetWidth(*tabBar.VerticalTabBarData)
     If *tabBar\IsExpanded
       ProcedureReturn *tabBar\SidebarExpandedWidth
@@ -660,8 +469,8 @@ Module VerticalTabBar
     EndIf
   EndProcedure
   
-  Procedure GetContentContainer(*tabBar.VerticalTabBarData)
-    ProcedureReturn *tabBar\InnerContentContainer
+  Procedure GetContentContainerID(*tabBar.VerticalTabBarData)
+    ProcedureReturn *tabBar\ContentContainerID
   EndProcedure
 EndModule
 
@@ -676,29 +485,28 @@ Global IsDarkModeActiveCached = #True
 IncludeFile "utils.pb"
 IncludeFile "winThemeGeneralUsage.pb"
 
+Debug "IsDarkModeActiveCached "+Str(IsDarkModeActiveCached)
 
+Global buttonContainer
 
+ExamineDesktops()
+Global DPI_Scale.f = DesktopResolutionX()
 
 desktopWidth =  DesktopWidth(0)
-
+Debug "XXXXXXXXXX"
+Debug DesktopWidth
+Debug DPI_Scale
 If desktopWidth >= 1920
   DPI_Scale = MaxF(1.5,DPI_Scale)
 ElseIf desktopWidth > 1024
   DPI_Scale = MaxF(1.25,DPI_Scale)
 EndIf 
 
+Debug "xyxyxyxyyyy"
 
-Global *tabBar.VerticalTabBarData
+Debug DPI_Scale
 
-Global buttonContainer
-
-
-Global windowWidth = 500
-Global windowHeight = 300
-Global sidebarExtendedWidth = 110
-Global buttonAreaHeight = 37
-Global sidebarWidth = 28
-
+Global *TabBar.VerticalTabBarData
 
 Procedure CreateMockIcon(width.i, height.i, bgColor.i, fgColor.i)
   Protected img = CreateImage(#PB_Any, width * DPI_Scale, height * DPI_Scale, 32, bgColor)
@@ -711,12 +519,11 @@ Procedure CreateMockIcon(width.i, height.i, bgColor.i, fgColor.i)
   ProcedureReturn img
 EndProcedure
 
-
 Procedure OnTabClick(tabIndex.i)
   
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Hide all content containers
-    SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, 0, 0)
+    SendMessage_(GadgetID(*TabBar\OuterContentContainerID), #WM_SETREDRAW, 0, 0)
     SendMessage_(GadgetID(#CNT_CONTENT + tabIndex), #WM_SETREDRAW, 0, 0)
   CompilerEndIf   
   
@@ -728,8 +535,8 @@ Procedure OnTabClick(tabIndex.i)
   HideGadget(#CNT_CONTENT + tabIndex, #False)
   
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, 1, 0)
-    RedrawWindow_(GadgetID(*tabBar\ContentContainer), 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
+    SendMessage_(GadgetID(*TabBar\OuterContentContainerID), #WM_SETREDRAW, 1, 0)
+    RedrawWindow_(GadgetID(*TabBar\OuterContentContainerID), 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
     SendMessage_(GadgetID(#CNT_CONTENT + tabIndex), #WM_SETREDRAW, 1, 0)
     RedrawWindow_(GadgetID(#CNT_CONTENT + tabIndex), 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
   CompilerEndIf
@@ -759,37 +566,72 @@ Procedure ShowWindowFadeIn(winID)
   CompilerEndIf
 EndProcedure
 
-Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, *parentsRoundingDeltaX)
-  parentsRoundingDeltaX.f = PeekF(*parentsRoundingDeltaX)
+Procedure handleSidebarResize(*tabBar.VerticalTabBarData, index.i, *width)
+  width.f = PeekF(*width)
+  
+  
+   If *tabBar\IsExpanded
+    Debug "TOGGLE WIDTH EXPANDED"
+    Debug "POSITION WE:"
+    Debug *tabBar\ContentX+*tabBar\SidebarExpandedWidth+width - 10 * DPI_Scale
+
+  Else
+    Debug "TOGGLE WIDTH NOT EXPANDED"
+    
+    Debug "POSITION WE:"
+    Debug *tabBar\ContentX+*tabBar\SidebarWidth+width - 10 * DPI_Scale
+
+  EndIf 
+  
+  
+  Debug "WIDTH#######################################"
+  Debug *tabBar\ContentX
+  Debug *tabBar\SidebarWidth
+
+  Debug *tabBar\SidebarExpandedWidth
+  Debug width 
+  Debug  10 * DPI_Scale
+  
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     SendMessage_(GadgetID(#CNT_CONTENT + index), #WM_SETREDRAW, 0, 0)
   CompilerEndIf
   
-  
-  NormalResizeGadget(#CNT_CONTENT + index, #PB_Ignore, #PB_Ignore, width, #PB_Ignore,parentsRoundingDeltaX)
-  
-  Select index 
-    Case 0:
-      NormalResizeGadget(#BTN_COLOR, width-(150+10+10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore ,parentsRoundingDeltaX)
-      NormalResizeGadget(#CNT_COLORPREVIEW, width-(10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-    Case 1:
-      NormalResizeGadget(#EDT_CMD,#PB_Ignore, #PB_Ignore,width-20* DPI_Scale, #PB_Ignore,parentsRoundingDeltaX) 
-    Case 2:
-      NormalResizeGadget(#EDT_CMD+1000,#PB_Ignore, #PB_Ignore,width-20* DPI_Scale, #PB_Ignore,parentsRoundingDeltaX)
-    Case 3:
-      NormalResizeGadget(#EXP_DIR,#PB_Ignore, #PB_Ignore,width-20, #PB_Ignore,parentsRoundingDeltaX)
-  EndSelect
-  
-  
-  
-  NormalResizeGadget(#BTN_OK, width-Round((55+10+55+10)* DPI_Scale,#PB_Round_Up), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-  NormalResizeGadget(#BTN_CANCEL, width-Round((55+10)* DPI_Scale,#PB_Round_Up), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-  
-  
+  For i = 0 To 6 
+    ResizeGadget(#CNT_CONTENT + i, #PB_Ignore, #PB_Ignore, width, #PB_Ignore)
+  Next
+ 
+   ResizeGadget(#EDT_CMD,#PB_Ignore, #PB_Ignore,width- 10 * DPI_Scale, #PB_Ignore)
+   ResizeGadget(#EDT_CMD + 1000,#PB_Ignore, #PB_Ignore,width- 10 * DPI_Scale, #PB_Ignore)
+   
+   ; Resize inner gadgets in other tabs for consistency
+   ResizeGadget(#BTN_COLOR, width-(100+5+10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore)
+   ResizeGadget(#CNT_COLORPREVIEW, width-(10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore)
+   ; Directory tab explorer
+   Protected elg = GetGadgetData(#CNT_CONTENT + 3) ; Assuming stored or known ID; adjust if needed
+   If elg : ResizeGadget(elg, #PB_Ignore, #PB_Ignore, width - 20 * DPI_Scale, #PB_Ignore) : EndIf
+   ; Status tab text
+   Protected tg = GetGadgetData(#CNT_CONTENT + 4)
+   If tg : ResizeGadget(tg, #PB_Ignore, #PB_Ignore, width - 20 * DPI_Scale, #PB_Ignore) : EndIf
+   ; Reaction tab text
+   Protected tg_reaction = GetGadgetData(#CNT_CONTENT + 5)
+   If tg_reaction : ResizeGadget(tg_reaction, #PB_Ignore, #PB_Ignore, width - 20 * DPI_Scale, #PB_Ignore) : EndIf
+   ; Filter tab text
+   Protected tgx = GetGadgetData(#CNT_CONTENT + 6)
+   If tgx : ResizeGadget(tgx, #PB_Ignore, #PB_Ignore, width - 20 * DPI_Scale, #PB_Ignore) : EndIf
+   
+   ; Resize button container
+   AppResizeGadget(buttonContainer, #PB_Ignore, #PB_Ignore, width, #PB_Ignore)
+   
+   
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     SendMessage_(GadgetID(#CNT_CONTENT + index), #WM_SETREDRAW, 1, 0)
     RedrawWindow_(GadgetID(#CNT_CONTENT + index), 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
   CompilerEndIf
+ 
+  
+
+  AppResizeGadget(#BTN_OK, width-(55+5+55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore)
+  AppResizeGadget(#BTN_CANCEL, width-(55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore)
   
 EndProcedure
 
@@ -797,132 +639,15 @@ EndProcedure
 
 
 
-
-
-
-
-
-Procedure ResizeMainWindow() 
-  
-  Protected windowWidth = WindowWidth(#WIN_MAIN)
-  Protected windowHeight = WindowHeight(#WIN_MAIN)
-  
-  SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
-  SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
-  
-  Define x = 0, y = 0, width.f = windowWidth - sidebarWidth * DPI_Scale, height.f = windowHeight - buttonAreaHeight * DPI_Scale
-  VerticalTabBar::Resize(*tabBar, windowWidth / DPI_Scale - sidebarWidth, windowHeight / DPI_Scale,#True )
-  
-  NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)
-  NormalResizeGadget(#CNT_CONTENT + *tabBar\ActiveTabIndex, #PB_Ignore,#PB_Ignore,width,height,*tabBar\ParentsRoundingDeltaX)
-  
-
-  SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
-  SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
-  
-  ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
-  ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-    
-  RedrawWindow_(WindowID(#WIN_MAIN), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-  
-  
-EndProcedure
-
-Procedure WindowCallback(hwnd, msg, wParam, lParam)
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    Protected bg.l, fg.l
-    If IsDarkModeActiveCached
-      bg = RGBA(30, 30, 30,0)
-      fg = RGB(220, 220, 220)
-    Else
-      bg = RGB(255, 255, 255)
-      fg = RGB(0, 0, 0)
-    EndIf
-    Protected parentBrush.i
-    
-    
-
-    
-    
-    Select msg
-      Case #WM_SIZE
-        ; Update clipping and force repaint for containers
-        If hwnd <> WindowID(#WIN_MAIN)
-          
-          
-        EndIf
-        
-      Case #WM_TIMER
-        
-        
-      Case #WM_SETTINGCHANGE
-        If lParam
-          Protected *themeName = lParam
-          Protected themeName.s = PeekS(*themeName)
-          If themeName = "ImmersiveColorSet"
-            IsDarkModeActive()
-            If themeBgBrush
-              DeleteObject_(themeBgBrush)
-            EndIf 
-            If IsDarkModeActiveCached
-              bg = RGB(30, 30, 30)
-            Else
-              bg = RGB(255, 255, 255)
-            EndIf
-            themeBgBrush = CreateSolidBrush_(bg)
-            
-            ApplyThemeHandle(hwnd)
-            InvalidateRect_(hwnd, #Null, #True)
-          EndIf
-        EndIf  
-      Case #WM_CTLCOLORBTN, #WM_CTLCOLORDLG, #WM_CTLCOLORSTATIC
-        SetTextColor_(wParam, fg)
-        SetBkMode_(wParam, #TRANSPARENT)
-        hBrush = GetProp_(GetParent_(lParam), "BackgroundBrush")
-        If hBrush
-          SetTextColor_(wParam, fg)
-          SetBkMode_(wParam, #TRANSPARENT)
-          SetBkColor_(wParam, buttonContainerColor) ; Use stored color for consistency
-          ProcedureReturn hBrush
-        Else
-          ProcedureReturn GetStockObject_(#NULL_BRUSH)
-        EndIf
-      Case #WM_CTLCOLORSTATIC  ; For static text
-                               ; Set text color based on current theme (not just dark mode!)
-        SetTextColor_(wParam, fg)
-        SetBkMode_(wParam, #TRANSPARENT)
-        parentBrush = GetClassLongPtr_(WindowID(#WIN_MAIN), #GCL_HBRBACKGROUND)
-        If parentBrush
-          ProcedureReturn parentBrush
-        Else
-          ProcedureReturn GetStockObject_(#NULL_BRUSH)
-        EndIf
-    EndSelect
-    ProcedureReturn #PB_ProcessPureBasicEvents
-  CompilerEndIf 
-EndProcedure
-
-Global NewList brushes.i()
-Procedure SetGadgetBackgoundColor(gadget, COLOR_BG_DARK)
-  SetGadgetColor(gadget, #PB_Gadget_BackColor, COLOR_BG_DARK)
-  hBrush = CreateSolidBrush_(COLOR_BG_DARK)
-  AddElement(brushes())
-  brushes() = hBrush
-  SetProp_(GadgetID(gadget), "BackgroundBrush", hBrush) 
-EndProcedure 
-
+windowWidth = 500
+windowHeight = 300
 
 ; Create main window with DPI scaling
 OpenWindow(#WIN_MAIN, 0, 0, windowWidth * DPI_Scale, windowHeight * DPI_Scale, "Monitor - VS Code Style", 
-           #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget|#PB_Window_MaximizeGadget| #PB_Window_SizeGadget | #PB_Window_Invisible)
+           #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_SizeGadget | #PB_Window_Invisible)
 
 SetWindowColor(#WIN_MAIN, COLOR_BG_DARK)
 
-
-SetWindowLongPtr_(WindowID(#WIN_MAIN), #GWL_STYLE, GetWindowLongPtr_(WindowID(#WIN_MAIN), #GWL_STYLE) | #WS_CLIPCHILDREN)
-
-SetWindowCallback(@WindowCallback())
-BindEvent(#PB_Event_SizeWindow, @ResizeMainWindow(),#WIN_MAIN)
 
 #ICON_SIZE = 10
 ; Create mock icons
@@ -960,39 +685,49 @@ tabConfigs()\Name = "Reaction"
 tabConfigs()\IconImage = imgReaction
 tabConfigs()\ClickCallback = @OnTabClick()
 AddElement(tabConfigs())
-
 tabConfigs()\Name = "Filter"
 tabConfigs()\IconImage = imgFilter
 tabConfigs()\ClickCallback = @OnTabClick()
 
 
-;Create vertical tab bar
+Debug "DPI_Scale"
+Debug DPI_Scale
+; Create vertical tab bar
 
 
+sidebarWidth = 28
+sidebarExtendedWidth = 110
 
-*tabBar = VerticalTabBar::Create(#WIN_MAIN, 0, 0, sidebarWidth, sidebarExtendedWidth, windowWidth-sidebarWidth, windowHeight, tabConfigs(),DPI_Scale, @handleLayout())
 
-
+*TabBar = VerticalTabBar::Create(#WIN_MAIN, 0, 0, sidebarWidth, sidebarExtendedWidth, windowWidth-sidebarWidth, windowHeight, tabConfigs(),DPI_Scale, @handleSidebarResize())
+Debug "DPI_Scale"
+Debug DPI_Scale
 ; Get content container and add tab content inside it
-InnerContentContainer = VerticalTabBar::GetContentContainer(*tabBar)
-OpenGadgetList(InnerContentContainer)
+contentContainerID = VerticalTabBar::GetContentContainerID(*TabBar)
+OpenGadgetList(contentContainerID)
 
+buttonAreaHeight = 35
 
 
 ; Content area containers - now inside the TabBar's content container
-Define x = 0, y = 0, width.f = (windowWidth-sidebarWidth) * DPI_Scale, height.f = (windowHeight- buttonAreaHeight)* DPI_Scale
+Define x = 0, y = 0, w.f = (windowWidth-sidebarWidth) * DPI_Scale, h.f = (windowHeight- buttonAreaHeight)* DPI_Scale
 
 
 containerID = #CNT_CONTENT
 
-; Tab 0 - General
-ContainerGadget(containerID, x, y, 10000, 10000, #PB_Container_BorderLess)
-SetGadgetBackgoundColor(#CNT_CONTENT + 0,  COLOR_BG_DARK)
+; Tab 0 - Presets
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
+SetGadgetColor(#CNT_CONTENT + 0, #PB_Gadget_BackColor,  RGB(255,255,0))
+xxx = TextGadget(#PB_Any,  10 * DPI_Scale, 10 * DPI_Scale, w-20 * DPI_Scale, h-20 * DPI_Scale, "Presets content goes here.")
+SetGadgetColor(xxx, #PB_Gadget_BackColor, COLOR_BG_DARK)
 
-ButtonGadget(#BTN_COLOR, width-(150+10+10+10) * DPI_Scale, 10 * DPI_Scale, 150 * DPI_Scale, 20 * DPI_Scale, "Select Monitor Color...")
+SetGadgetColor(xxx, #PB_Gadget_FrontColor, COLOR_TEXT)
+
+
+ButtonGadget(#BTN_COLOR, w-(100+5+10+10) * DPI_Scale, 5 * DPI_Scale, 100 * DPI_Scale, 15 * DPI_Scale, "Select Monitor Color...")
 SetGadgetColor(#BTN_COLOR, #PB_Gadget_BackColor, RGB(60, 60, 60))
 SetGadgetColor(#BTN_COLOR, #PB_Gadget_FrontColor, COLOR_TEXT)
-ContainerGadget(#CNT_COLORPREVIEW, width-(10+10) * DPI_Scale, 15 * DPI_Scale, 10 * DPI_Scale, 10 * DPI_Scale, #PB_Container_BorderLess)
+ContainerGadget(#CNT_COLORPREVIEW, w-(10+10) * DPI_Scale, 7.5 * DPI_Scale, 10 * DPI_Scale, 10 * DPI_Scale, #PB_Container_BorderLess)
 CloseGadgetList()
 SetGadgetColor(#CNT_COLORPREVIEW, #PB_Gadget_BackColor, PatternColor)
 
@@ -1000,9 +735,9 @@ CloseGadgetList()
 
 ; Tab 1 - Start Command
 containerID+1
-ContainerGadget(containerID, x, y, width, height, #PB_Container_BorderLess)
-SetGadgetBackgoundColor(containerID,  COLOR_BG_DARK)
-cg = ComboBoxGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, 150 * DPI_Scale, 15 * DPI_Scale)
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
+SetGadgetColor(containerID, #PB_Gadget_BackColor,  RGB(255,255,0))
+cg = ComboBoxGadget(#PB_Any, 0 * DPI_Scale, 5 * DPI_Scale, 150 * DPI_Scale, 15 * DPI_Scale)
 AddGadgetItem(cg, -1,"Powershell")   
 AddGadgetItem(cg, -1,"CMD")
 AddGadgetItem(cg, -1,"WSL")
@@ -1013,12 +748,16 @@ SetGadgetColor(cg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
 SetGadgetColor(cg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
 
 
-EditorGadget(#EDT_CMD, 10 * DPI_Scale, 40 * DPI_Scale, width-20* DPI_Scale, height - 100 * DPI_Scale)
+
+
+EditorGadget(#EDT_CMD, 0 * DPI_Scale, 25 * DPI_Scale, w-10 * DPI_Scale, h - 100 * DPI_Scale)
 SetGadgetColor(#EDT_CMD, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
 SetGadgetColor(#EDT_CMD, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
 
 
-
+CheckBoxGadget(#CHK_NOTIFY, 10 * DPI_Scale, 355 * DPI_Scale, 200 * DPI_Scale, 20 * DPI_Scale, "Enable Notifications")
+SetGadgetColor(#CHK_NOTIFY, #PB_Gadget_BackColor, COLOR_BG_DARK)
+SetGadgetColor(#CHK_NOTIFY, #PB_Gadget_FrontColor, COLOR_TEXT)
 
 
 
@@ -1026,11 +765,11 @@ CloseGadgetList()
 
 ; Tab 2 - Stop Command
 containerID+1
-ContainerGadget(containerID, x, y, width, height, #PB_Container_BorderLess)
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
 
-SetGadgetColor(containerID, #PB_Gadget_BackColor, COLOR_BG_DARK)
+SetGadgetColor(containerID, #PB_Gadget_BackColor, RGB(255,255,0))
 
-cg = ComboBoxGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, 150 * DPI_Scale, 15 * DPI_Scale)
+cg = ComboBoxGadget(#PB_Any, 5 * DPI_Scale, 5 * DPI_Scale, 150 * DPI_Scale, 15 * DPI_Scale)
 AddGadgetItem(cg, -1,"Powershell")   
 AddGadgetItem(cg, -1,"CMD")
 AddGadgetItem(cg, -1,"WSL")
@@ -1043,12 +782,14 @@ SetGadgetColor(cg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
 
 
 
-EditorGadget(#EDT_CMD+1000, 10 * DPI_Scale, 40 * DPI_Scale, width-20* DPI_Scale, height - 100 * DPI_Scale)
-
+EditorGadget(#EDT_CMD+1000, 0, 25 * DPI_Scale, w-10 * DPI_Scale, h - 100 * DPI_Scale)
 SetGadgetColor(#EDT_CMD+1000, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
 SetGadgetColor(#EDT_CMD+1000, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
 
 
+CheckBoxGadget(#CHK_NOTIFY+1000, 10 * DPI_Scale, 355 * DPI_Scale, 200 * DPI_Scale, 20 * DPI_Scale, "Enable Notifications")
+SetGadgetColor(#CHK_NOTIFY+1000, #PB_Gadget_BackColor, COLOR_BG_DARK)
+SetGadgetColor(#CHK_NOTIFY+1000, #PB_Gadget_FrontColor, COLOR_TEXT)
 
 
 
@@ -1057,76 +798,68 @@ CloseGadgetList()
 
 ; Tab 3 - Directory
 containerID+1
-ContainerGadget(containerID, x, y, width, height, #PB_Container_BorderLess)
-SetGadgetBackgoundColor(containerID, COLOR_BG_DARK)
-
-
-
-ExplorerListGadget(#EXP_DIR, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "*.*", #PB_Explorer_MultiSelect)
-SetGadgetColor(#EXP_DIR, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
-SetGadgetColor(#EXP_DIR, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
+SetGadgetColor(containerID, #PB_Gadget_BackColor, COLOR_BG_DARK)
+elg = ExplorerListGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, w-20 * DPI_Scale, h-20 * DPI_Scale, "*.*", #PB_Explorer_MultiSelect)
+SetGadgetColor(elg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
+SetGadgetColor(elg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
+SetGadgetData(containerID, elg) ; Store for resizing
 CloseGadgetList()
 
 ; Tab 4 - Status
 containerID+1
-ContainerGadget(containerID, x, y, width, height, #PB_Container_BorderLess)
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
 SetGadgetColor(containerID, #PB_Gadget_BackColor, COLOR_BG_DARK)
-
-CheckBoxGadget(#CHK_NOTIFY, 10 * DPI_Scale, 200 * DPI_Scale, 200 * DPI_Scale, 20 * DPI_Scale, "Enable Notifications")
-SetGadgetColor(#CHK_NOTIFY, #PB_Gadget_BackColor, COLOR_BG_DARK)
-SetGadgetColor(#CHK_NOTIFY, #PB_Gadget_FrontColor, COLOR_TEXT)
-
+tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, w-20 * DPI_Scale, h-20 * DPI_Scale, "Status content goes here.")
+SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
+SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
+SetGadgetData(containerID, tg) ; Store for resizing
 CloseGadgetList()
 
 ; Tab 5 - Reaction
 containerID+1
-ContainerGadget(containerID, x, y, width, height, #PB_Container_BorderLess)
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
 SetGadgetColor(containerID, #PB_Gadget_BackColor, COLOR_BG_DARK)
-tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Reaction content goes here.")
+tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, w-20 * DPI_Scale, h-20 * DPI_Scale, "Reaction content goes here.")
 SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
 SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
+SetGadgetData(containerID, tg) ; Store for resizing
 CloseGadgetList()
 
 ; Tab 6 - Filter
 containerID+1
-ContainerGadget(containerID, x, y, width, height, #PB_Container_BorderLess)
+ContainerGadget(containerID, x, y, w, h, #PB_Container_BorderLess)
 SetGadgetColor(containerID, #PB_Gadget_BackColor, COLOR_BG_DARK)
-; tgx = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Filter content goes here.")
-; SetGadgetColor(tgx, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
-; SetGadgetColor(tgx, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
-
-wv= WebViewGadget(#PB_Any,0,0, width, height)
-SetGadgetText(wv, "http://www.google.de")
-
+tgx = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, w-20 * DPI_Scale, h-20 * DPI_Scale, "Filter content goes here.")
+SetGadgetColor(tgx, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
+SetGadgetColor(tgx, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
+SetGadgetData(containerID, tgx) ; Store for resizing
 CloseGadgetList()
 
-
-; Bottom buttons
-
-buttonContainer = ContainerGadget(#PB_Any, 0, height , width+5, buttonAreaHeight * DPI_Scale, #PB_Container_BorderLess)
+Global buttonContainer = ContainerGadget(#PB_Any, 0, h , w, buttonAreaHeight * DPI_Scale, #PB_Container_BorderLess)
 SetGadgetColor(buttonContainer, #PB_Gadget_BackColor, RGB(65, 65, 65))
 
-hBrush = CreateSolidBrush_(RGB(65, 65, 65))
-SetProp_(GadgetID(buttonContainer), "BackgroundBrush", hBrush) 
-
-
-ButtonGadget(#BTN_OK, width-Round((55+10+55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "OK")
+; Bottom buttons
+ButtonGadget(#BTN_OK, w-(55+5+55+10) * DPI_Scale, 7 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "OK")
 SetGadgetColor(#BTN_OK, #PB_Gadget_BackColor, COLOR_ACCENT)
 SetGadgetColor(#BTN_OK, #PB_Gadget_FrontColor, RGB(255, 255, 255))
 
-ButtonGadget(#BTN_CANCEL, width-Round((55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "Cancel")
+ButtonGadget(#BTN_CANCEL, w-(55+10) * DPI_Scale, 7 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "Cancel")
 SetGadgetColor(#BTN_CANCEL, #PB_Gadget_BackColor, RGB(60, 60, 60))
 SetGadgetColor(#BTN_CANCEL, #PB_Gadget_FrontColor, COLOR_TEXT)
 CloseGadgetList()
 CloseGadgetList()
 
+SetGadgetColor(xxx, #PB_Gadget_BackColor, RGB(0,0,0))
+
+
 ; Show first tab
 OnTabClick(0)
-SetActiveTab(*tabBar,0)
 
-;VerticalTabBar::Toggle(*tabBar)
 
-ApplyThemeHandle(WindowID(#WIN_MAIN))
+
+
+;ApplyThemeHandle(WindowID(#WIN_MAIN))
 
 
 Repeat : Delay(1) : Until WindowEvent() = 0
@@ -1135,15 +868,11 @@ ShowWindowFadeIn(#WIN_MAIN)
 
 ; Main event loop
 Repeat
-  
-  
-   
-  Event = WaitWindowEvent()
-  
-   
+  Delay(1)
+  Event = WindowEvent()
   EventType = EventType()
   EventGadget = EventGadget()
-  If Not VerticalTabBar::HandleEvent(*tabBar, EventGadget, Event)
+  If Not VerticalTabBar::HandleEvent(*TabBar, EventGadget, Event)
     Select Event
       Case #PB_Event_Gadget
         ; Try to handle with TabBar first
@@ -1164,7 +893,7 @@ Repeat
                                      "Pattern color: #" + colorHex)
             
           Case #BTN_CANCEL
-            Break
+            CloseWindow(#WIN_MAIN)
         EndSelect
         
         
@@ -1177,19 +906,12 @@ Repeat
 ForEver
 CloseWindow(#WIN_MAIN)
 
-If *tabBar And *tabBar\AnimationRunning
-  WaitThread(*tabBar\AnimationThread)
+If *TabBar And *TabBar\AnimationRunning
+  WaitThread(*TabBar\AnimationThread)
 EndIf
-
-ForEach brushes()
-  DeleteObject_(brushes())
-Next 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1098
-; FirstLine = 1074
-; Folding = -------
-; EnableThread
+; CursorPosition = 489
+; FirstLine = 482
+; Folding = -----
 ; EnableXP
 ; DPIAware
-; Executable = ..\..\sidebar.exe
-; DisableDebugger

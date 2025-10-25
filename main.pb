@@ -249,12 +249,24 @@ Module App
         Case #WM_CTLCOLORBTN
           SetTextColor_(wParam, fg)
           SetBkMode_(wParam, #TRANSPARENT)
-          parentBrush = GetClassLongPtr_(hwnd, #GCL_HBRBACKGROUND)
-          If parentBrush
-            ProcedureReturn parentBrush
+          
+          Protected hBrush = GetProp_(GetParent_(lParam), "BackgroundBrush")
+          If hBrush
+            SetTextColor_(wParam, fg)
+            SetBkMode_(wParam, #TRANSPARENT)
+            SetBkColor_(wParam, buttonContainerColor) 
+            ProcedureReturn hBrush
           Else
-            ProcedureReturn GetStockObject_(#NULL_BRUSH)
+            parentBrush = GetClassLongPtr_(hwnd, #GCL_HBRBACKGROUND)
+            If parentBrush
+              ProcedureReturn parentBrush
+            Else
+              ProcedureReturn GetStockObject_(#NULL_BRUSH)
+            EndIf
           EndIf
+          
+          
+          
         Case #WM_CTLCOLORSTATIC
           SetTextColor_(wParam, fg)
           SetBkMode_(wParam, #TRANSPARENT)
@@ -2332,8 +2344,8 @@ EndModule
 UseModule Execute
 StartApp()
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1581
-; FirstLine = 1581
+; CursorPosition = 200
+; FirstLine = 189
 ; Folding = -------------------
 ; Optimizer
 ; EnableThread

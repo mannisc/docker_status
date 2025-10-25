@@ -17,7 +17,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     pf\dwMask = #PFM_LINESPACING
     pf\bLineSpacingRule = 4 ; exact line spacing
     pf\dyLineSpacing = heightPixels * 15  ; 1 pixel ≈ 15 twips
-    Debug SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
+    SendMessage_(hEditor, #EM_SETPARAFORMAT, 0, @pf)
   EndProcedure
   
   
@@ -77,15 +77,10 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ProcedureReturn result
   EndProcedure
   
-      Debug "IsDarkModeActiveCached "+Str(IsDarkModeActiveCached)
-
-  
-  
   ; -------------------- Dark Mode Application --------------------
   Procedure ApplyThemeToWindowHandle(hWnd)
     
     Protected bg, fg
-    Debug "IsDarkModeActiveCached "+Str(IsDarkModeActiveCached)
     If IsDarkModeActiveCached
       bg = RGB(30,30,30)
       fg = RGB(220,220,220)
@@ -833,8 +828,8 @@ EndProcedure
   
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 67
-; FirstLine = 64
+; CursorPosition = 78
+; FirstLine = 76
 ; Folding = -----
 ; EnableXP
 ; DPIAware
