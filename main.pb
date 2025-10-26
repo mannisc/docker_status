@@ -1609,13 +1609,7 @@ DeclareModule VerticalTabBar
   Declare GetWidth(*tabBar.VerticalTabBarData)
   Declare GetContentContainer(*tabBar.VerticalTabBarData)
   Declare RedrawAllTabs(*tabBar.VerticalTabBarData)
-  
-  
-  
-  
-  
-  
-  
+ 
   
 EndDeclareModule
 
@@ -4011,10 +4005,11 @@ Module Execute
     
     
     AppWindow::CreateWindow()
-    
-    MainWindow::Open()
+
+    ;MainWindow::Open()
     MonitorDialog::CreateWindow()
                   
+    AppWindow::Open()
 
     RunEventLoop(@HandleMainEvent())
     
@@ -4032,8 +4027,8 @@ EndProcedure
   App::CleanupApp() 
   
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 109
-; FirstLine = 102
+; CursorPosition = 2134
+; FirstLine = 2120
 ; Folding = -------------------------------
 ; Optimizer
 ; EnableThread
