@@ -149,6 +149,10 @@ DeclareModule App
   Global DPI_Scale.f
   Global consoleFont
   
+  
+  Debug DPI_Scale
+  
+  
   Declare.f MaxF(a.f, b.f)
   
   Global IsDarkModeActiveCached = #False
@@ -158,8 +162,8 @@ DeclareModule App
   Global lightThemeForegroundColor = RGB(0,0,0)
   
   
-  Global themeBackgroundColor = darkThemeBackgroundColor
-  Global themeForegroundColor = darkThemeForegroundColor
+  Global themeBackgroundColor = lightThemeBackgroundColor
+  Global themeForegroundColor = lightThemeForegroundColor
   
   Prototype.i ProtoHandleThemeChange(*p)
   Structure ThemeHandler
@@ -211,6 +215,76 @@ Module App
         EndIf
         RegCloseKey_(key)
       EndIf
+      
+    CompilerElseIf #PB_Compiler_OS = #PB_OS_MacOS
+      Define mode$, result
+      result = RunProgram("/usr/bin/defaults", "read -g AppleInterfaceStyle", "", #PB_Program_Open | #PB_Program_Read)
+      If result
+        mode$ = ReadProgramString(result)
+        CloseProgram(result)
+      EndIf
+      
+      If mode$ = "Dark"
+        IsDarkModeActiveCached = #True 
+      Else
+        IsDarkModeActiveCached = #False 
+      EndIf
+    CompilerElseIf #PB_Compiler_OS = #PB_OS_Linux
+      
+      Protected result, line$, theme$, cmd$, tmp$
+      
+      ; --- 1️⃣ Try freedesktop.org unified color-scheme (modern GNOME/KDE)
+      result = RunProgram("gsettings", "get org.freedesktop.appearance color-scheme", "", #PB_Program_Open | #PB_Program_Read)
+      If result
+        tmp$ = Trim(ReadProgramString(result), "'")
+        CloseProgram(result)
+        If LCase(tmp$) = "prefer-dark"
+          IsDarkModeActiveCached = #True
+          ProcedureReturn
+        ElseIf LCase(tmp$) = "default"
+          IsDarkModeActiveCached = #False
+          ProcedureReturn
+        EndIf
+      EndIf
+      
+      ; --- 2️⃣ Try GNOME / Cinnamon / XFCE GTK theme
+      result = RunProgram("gsettings", "get org.gnome.desktop.interface gtk-theme", "", #PB_Program_Open | #PB_Program_Read)
+      If result
+        theme$ = Trim(ReadProgramString(result), "'")
+        CloseProgram(result)
+        If FindString(LCase(theme$), "dark")
+          IsDarkModeActiveCached = #True
+          ProcedureReturn
+        ElseIf theme$ <> ""
+          IsDarkModeActiveCached = #False
+          ProcedureReturn
+        EndIf
+      EndIf
+      
+      ; --- 3️⃣ Try KDE Plasma config
+      If FileSize(GetHomeDirectory() + ".config/kdeglobals") > 0
+        result = ReadFile(#PB_Any, GetHomeDirectory() + ".config/kdeglobals")
+        If result
+          While Eof(result) = 0
+            line$ = ReadString(result)
+            If Left(line$, 11) = "ColorScheme"
+              theme$ = Trim(StringField(line$, 2, "="))
+              Break
+            EndIf
+          Wend
+          CloseFile(result)
+          If FindString(LCase(theme$), "dark")
+            IsDarkModeActiveCached = #True
+          Else
+            IsDarkModeActiveCached = #False
+          EndIf
+          ProcedureReturn
+        EndIf
+      EndIf
+      
+      ; --- 4️⃣ Default: assume Light mode
+      IsDarkModeActiveCached = #False
+      
     CompilerEndIf
     If IsDarkModeActiveCached
       themeBackgroundColor = darkThemeBackgroundColor
@@ -222,6 +296,8 @@ Module App
     ProcedureReturn result
   EndProcedure
   
+  IsDarkModeActive()   
+
   
   Procedure.s ReadProgramOutputBytes(ProgramID, length)
     Protected buffer
@@ -1485,7 +1561,7 @@ Module App
               EndIf
               themeBgBrush = CreateSolidBrush_(bg)
               ApplyThemeHandle(hwnd)
-             
+              
               ;SendMessage_(hwnd, #WM_SETREDRAW, #True, 0)
               ;InvalidateRect_(hwnd, #Null, #True)
               ;UpdateWindow_(hwnd)
@@ -1530,25 +1606,25 @@ Module App
       EndSelect
       ProcedureReturn #PB_ProcessPureBasicEvents
     CompilerEndIf
-
-EndProcedure
-
-
-Procedure CleanupApp() 
+    
+  EndProcedure
   
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    ForEach logWindows()
-      If containterMetaData(logWindows()\containerIndex)\overlayIconHandle
-       DestroyIcon_(containterMetaData(logWindows()\containerIndex)\overlayIconHandle)
-      EndIf
-    Next
-    For i = 0 To containerCount-1
-      If infoImageId(i)
-        DestroyIcon_(infoImageId(i))
-      EndIf
-    Next
- CompilerEndIf
-
+  
+  Procedure CleanupApp() 
+    
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      ForEach logWindows()
+        If containterMetaData(logWindows()\containerIndex)\overlayIconHandle
+          DestroyIcon_(containterMetaData(logWindows()\containerIndex)\overlayIconHandle)
+        EndIf
+      Next
+      For i = 0 To containerCount-1
+        If infoImageId(i)
+          DestroyIcon_(infoImageId(i))
+        EndIf
+      Next
+    CompilerEndIf
+    
   EndProcedure
   
 EndModule
@@ -1609,7 +1685,7 @@ DeclareModule VerticalTabBar
   Declare GetWidth(*tabBar.VerticalTabBarData)
   Declare GetContentContainer(*tabBar.VerticalTabBarData)
   Declare RedrawAllTabs(*tabBar.VerticalTabBarData)
- 
+  
   
 EndDeclareModule
 
@@ -1728,14 +1804,14 @@ Module VerticalTabBar
           EndIf 
         Else
           ; Fallback if GetTextMetrics_ fails
-          yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 113.5 * DPI_Scale
+          yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 3.5 * DPI_Scale
         EndIf
         If hDC
           ReleaseDC_(GadgetID(gadget), hDC)
         EndIf
       CompilerElse
         ; Non-Windows fallback
-        yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 113.5 * DPI_Scale
+        yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 3.5 * DPI_Scale
       CompilerEndIf
       If active
         DrawText(canvasH + 2 * DPI_Scale, yPos, *tabBar\TabConfigs(tabIndex)\Name, themeForegroundColor)
@@ -1783,7 +1859,7 @@ Module VerticalTabBar
     SetGadgetColor(*tabBar\InnerContentContainer, #PB_Gadget_BackColor, themeBackgroundColor)
     
     DrawHamburgerButton(*tabBar)
- 
+    
     For i = 0 To *tabBar\TabCount - 1
       If i = *tabBar\ActiveTabIndex
         isActive = #True
@@ -1792,9 +1868,9 @@ Module VerticalTabBar
       EndIf
       DrawTabButton(*tabBar, i, isActive)
     Next
-  
+    
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows: RedrawWindow_(GadgetID(*tabBar\InnerSidebarContainer), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW):CompilerEndIf
-            
+    
   EndProcedure
   
   Procedure.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0)
@@ -1880,35 +1956,35 @@ Module VerticalTabBar
     RedrawAllTabs(*tabBar)
     
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    ; In VerticalTabBar::Create, add WS_CLIPCHILDREN to containers
-    Protected hSidebar = GadgetID(*tabBar\SidebarContainer)
-    SetWindowLongPtr_(hSidebar, #GWL_STYLE, GetWindowLongPtr_(hSidebar, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    Protected hContent = GadgetID(*tabBar\ContentContainer)
-    SetWindowLongPtr_(hContent, #GWL_STYLE, GetWindowLongPtr_(hContent, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    Protected hInnerSidebar = GadgetID(*tabBar\InnerSidebarContainer)
-    SetWindowLongPtr_(hInnerSidebar, #GWL_STYLE, GetWindowLongPtr_(hInnerSidebar, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    Protected hInnerContent = GadgetID(*tabBar\InnerContentContainer)
-    SetWindowLongPtr_(hInnerContent, #GWL_STYLE, GetWindowLongPtr_(hInnerContent, #GWL_STYLE) | #WS_CLIPCHILDREN)
-    
-    ;     
-    ; hwnd = GadgetID(*tabBar\SidebarContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)  
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    ; hwnd = GadgetID(*tabBar\InnerContentContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)  
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    ; 
-    ;  hwnd = GadgetID(*tabBar\ContentContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    ;  hwnd = GadgetID(*tabBar\InnerContentContainer)
-    ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)
-    ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
-    
-    
+      ; In VerticalTabBar::Create, add WS_CLIPCHILDREN to containers
+      Protected hSidebar = GadgetID(*tabBar\SidebarContainer)
+      SetWindowLongPtr_(hSidebar, #GWL_STYLE, GetWindowLongPtr_(hSidebar, #GWL_STYLE) | #WS_CLIPCHILDREN)
+      
+      Protected hContent = GadgetID(*tabBar\ContentContainer)
+      SetWindowLongPtr_(hContent, #GWL_STYLE, GetWindowLongPtr_(hContent, #GWL_STYLE) | #WS_CLIPCHILDREN)
+      
+      Protected hInnerSidebar = GadgetID(*tabBar\InnerSidebarContainer)
+      SetWindowLongPtr_(hInnerSidebar, #GWL_STYLE, GetWindowLongPtr_(hInnerSidebar, #GWL_STYLE) | #WS_CLIPCHILDREN)
+      
+      Protected hInnerContent = GadgetID(*tabBar\InnerContentContainer)
+      SetWindowLongPtr_(hInnerContent, #GWL_STYLE, GetWindowLongPtr_(hInnerContent, #GWL_STYLE) | #WS_CLIPCHILDREN)
+      
+      ;     
+      ; hwnd = GadgetID(*tabBar\SidebarContainer)
+      ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)  
+      ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+      ; hwnd = GadgetID(*tabBar\InnerContentContainer)
+      ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)  
+      ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+      ; 
+      ;  hwnd = GadgetID(*tabBar\ContentContainer)
+      ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)
+      ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+      ;  hwnd = GadgetID(*tabBar\InnerContentContainer)
+      ; SetWindowLongPtr_(hwnd, #GWL_EXSTYLE, GetWindowLongPtr_(hwnd, #GWL_EXSTYLE) | #WS_EX_COMPOSITED)
+      ; SetWindowPos_(hwnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED)
+      
+      
     CompilerEndIf
     ProcedureReturn *tabBar
   EndProcedure
@@ -1937,19 +2013,19 @@ Module VerticalTabBar
   
   Procedure Refresh(*tabBar.VerticalTabBarData)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows: 
-    RedrawWindow_(GadgetID(*tabBar\SidebarContainer), 0, 0,#RDW_ERASE | #RDW_INVALIDATE  | #RDW_UPDATENOW)
-    RedrawWindow_(GadgetID(*tabBar\ContentContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE  | #RDW_UPDATENOW)
-    RedrawWindow_(GadgetID(*tabBar\InnerSidebarContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
-    RedrawWindow_(GadgetID(*tabBar\InnerContentContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
-    InvalidateRect_(GadgetID(*tabBar\ContentContainer), #Null, #False)
-    InvalidateRect_(GadgetID(*tabBar\InnerContentContainer), #Null, #False)
-    UpdateWindow_(GadgetID(*tabBar\ContentContainer))
-    UpdateWindow_(GadgetID(*tabBar\InnerContentContainer))
+      RedrawWindow_(GadgetID(*tabBar\SidebarContainer), 0, 0,#RDW_ERASE | #RDW_INVALIDATE  | #RDW_UPDATENOW)
+      RedrawWindow_(GadgetID(*tabBar\ContentContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE  | #RDW_UPDATENOW)
+      RedrawWindow_(GadgetID(*tabBar\InnerSidebarContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
+      RedrawWindow_(GadgetID(*tabBar\InnerContentContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
+      InvalidateRect_(GadgetID(*tabBar\ContentContainer), #Null, #False)
+      InvalidateRect_(GadgetID(*tabBar\InnerContentContainer), #Null, #False)
+      UpdateWindow_(GadgetID(*tabBar\ContentContainer))
+      UpdateWindow_(GadgetID(*tabBar\InnerContentContainer))
     CompilerEndIf 
   EndProcedure
   
   
-
+  
   
   Procedure DoResize(*tabBar.VerticalTabBarData,externalResize = #False)
     sidebarDifference = *tabBar\SidebarExpandedWidth - *tabBar\SidebarWidth
@@ -2008,7 +2084,7 @@ Module VerticalTabBar
   
   Procedure Toggle(*tabBar.VerticalTabBarData)
     Protected newWidth.i, i.i, newContentX.f, newContentWidth.f
-
+    
     ; Start animation BEFORE toggling (Win11 style)
     If Not *tabBar\AnimationRunning
       *tabBar\AnimationRunning = #True
@@ -2142,7 +2218,7 @@ DeclareModule WindowManager
   Prototype.i ProtoHandleEvent(Event.i, Window.i, Gadget.i)
   Prototype.i ProtoCloseWindow(Window.i)
   Prototype.i ProtoCleanupWindow()
-
+  
   Structure AppWindow
     WindowID.i
     Title.s
@@ -2160,7 +2236,7 @@ DeclareModule WindowManager
   Declare CloseManagedWindow(*Window.AppWindow)
   Declare RunEventLoop(*HandleMainEvent.HandleMainEvent)
   Declare CleanupManagedWindows()
-
+  
 EndDeclareModule
 
 Module WindowManager
@@ -2251,7 +2327,7 @@ Module WindowManager
         KeepRunning = #False
       EndIf
     Wend
-   
+    
   EndProcedure
 EndModule
 
@@ -2306,13 +2382,23 @@ Module MonitorDialog
   ExamineDesktops()
   desktopWidth =  DesktopWidth(0)
   
-  
-  If desktopWidth >= 1920
-    DPI_Scale = MaxF(1.5,DPI_Scale)
-  ElseIf desktopWidth > 1024
-    DPI_Scale = MaxF(1.25,DPI_Scale)
-  EndIf 
-  
+  Debug "!!!!!"
+  Debug desktopWidth
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    
+    If desktopWidth >= 1920
+      DPI_Scale = MaxF(1.5,DPI_Scale)
+    ElseIf desktopWidth > 1024
+      DPI_Scale = MaxF(1.25,DPI_Scale)
+    EndIf 
+  CompilerElse
+    If desktopWidth >= 1280
+      DPI_Scale = MaxF(1.5,DPI_Scale)
+    ElseIf desktopWidth > 1024
+      DPI_Scale = MaxF(1.25,DPI_Scale)
+    EndIf 
+  CompilerEndIf
+  Debug DPI_Scale
   
   Global buttonContainer
   
@@ -2338,8 +2424,8 @@ Module MonitorDialog
     Protected windowWidth = WindowWidth(#WIN_ID)
     Protected windowHeight = WindowHeight(#WIN_ID)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
-    SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
+      SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
+      SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
     CompilerEndIf
     Define x = 0, y = 0, width.f = windowWidth - sidebarWidth * DPI_Scale, height.f = windowHeight - buttonAreaHeight * DPI_Scale
     VerticalTabBar::Resize(*tabBar, windowWidth / DPI_Scale - sidebarWidth, windowHeight / DPI_Scale,#True )
@@ -2351,13 +2437,13 @@ Module MonitorDialog
     
     
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
-    SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
-    
-    ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
-    ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-    
-    RedrawWindow_(WindowID(#WIN_ID), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
+      SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
+      SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
+      
+      ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
+      ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
+      
+      RedrawWindow_(WindowID(#WIN_ID), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
     CompilerEndIf
     
   EndProcedure
@@ -2405,10 +2491,10 @@ Module MonitorDialog
   Procedure SetGadgetBackgoundColor(gadget, bg)
     SetGadgetColor(gadget, #PB_Gadget_BackColor, bg)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows: 
-    hBrush = CreateSolidBrush_(bg)
-    AddElement(brushes())
-    brushes() = hBrush
-    SetProp_(GadgetID(gadget), "BackgroundBrush", hBrush) 
+      hBrush = CreateSolidBrush_(bg)
+      AddElement(brushes())
+      brushes() = hBrush
+      SetProp_(GadgetID(gadget), "BackgroundBrush", hBrush) 
     CompilerEndIf
   EndProcedure 
   
@@ -2454,12 +2540,12 @@ Module MonitorDialog
     SetColors()
     SetGadgetColor(buttonContainer, #PB_Gadget_BackColor,buttonContainerBackground )
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    Protected bgBrush = GetProp_(GadgetID(buttonContainer), "BackgroundBrush")
-    If bgBrush
-      DeleteObject_(bgBrush)
-    EndIf 
-    buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
-    SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
+      Protected bgBrush = GetProp_(GadgetID(buttonContainer), "BackgroundBrush")
+      If bgBrush
+        DeleteObject_(bgBrush)
+      EndIf 
+      buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
+      SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
     CompilerEndIf
   EndProcedure
   
@@ -2476,11 +2562,11 @@ Module MonitorDialog
         SetWindowColor(#WIN_ID, themeBackgroundColor)
         
         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        SetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE, GetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE) | #WS_CLIPCHILDREN)
-        SetWindowCallback(@WindowCallback())
+          SetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE, GetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE) | #WS_CLIPCHILDREN)
+          SetWindowCallback(@WindowCallback())
         CompilerEndIf
-                               BindEvent(#PB_Event_SizeWindow, @ResizeWindowCallback(),#WIN_ID)
-
+        BindEvent(#PB_Event_SizeWindow, @ResizeWindowCallback(),#WIN_ID)
+        
         iconSize = 10
         ; Create mock icons
         imgPresets = CreateMockIcon(iconSize, iconSize, RGB(100, 100, 250), RGB(50, 50, 200))
@@ -2569,28 +2655,28 @@ Module MonitorDialog
         SetGadgetColor(*Gadgets\StartCommandEdit, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(*Gadgets\StartCommandEdit, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        LoadLibrary_("Msftedit.dll")
-        SendMessage_(GadgetID(*Gadgets\StartCommandEdit), #EM_SETTEXTMODE, #TM_RICHTEXT, 0)
-       
-      
-        
-        rect.RECT
-        
-        ; Get current formatting rectangle
-        SendMessage_(GadgetID(*Gadgets\StartCommandEdit), #EM_GETRECT, 0, @rect)
-        
-        ; Adjust for padding: top=10px, bottom=10px, left=10px, right=10px
-        rect\top + 5* DPI_Scale
-        rect\bottom - 5* DPI_Scale
-        rect\left + 5* DPI_Scale
-        rect\right - 5* DPI_Scale
-        
-        ; Apply the new rectangle
-        SendMessage_(GadgetID(*Gadgets\StartCommandEdit), #EM_SETRECT, 0, @rect)
+          LoadLibrary_("Msftedit.dll")
+          SendMessage_(GadgetID(*Gadgets\StartCommandEdit), #EM_SETTEXTMODE, #TM_RICHTEXT, 0)
+          
+          
+          
+          rect.RECT
+          
+          ; Get current formatting rectangle
+          SendMessage_(GadgetID(*Gadgets\StartCommandEdit), #EM_GETRECT, 0, @rect)
+          
+          ; Adjust for padding: top=10px, bottom=10px, left=10px, right=10px
+          rect\top + 5* DPI_Scale
+          rect\bottom - 5* DPI_Scale
+          rect\left + 5* DPI_Scale
+          rect\right - 5* DPI_Scale
+          
+          ; Apply the new rectangle
+          SendMessage_(GadgetID(*Gadgets\StartCommandEdit), #EM_SETRECT, 0, @rect)
         CompilerEndIf
         
         SetGadgetFont(*Gadgets\StartCommandEdit, FontID(consoleFont))
-
+        
         CloseGadgetList()
         
         tabIndex + 1
@@ -2663,8 +2749,8 @@ Module MonitorDialog
         buttonContainer = ContainerGadget(#PB_Any, 0, height , width+5, buttonAreaHeight * DPI_Scale, #PB_Container_BorderLess)
         SetGadgetColor(buttonContainer, #PB_Gadget_BackColor,buttonContainerBackground )
         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
-        SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
+          buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
+          SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
         CompilerEndIf
         *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-Round((55+10+55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "OK")
         SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_BackColor, COLOR_ACCENT)
@@ -2677,7 +2763,7 @@ Module MonitorDialog
         CloseGadgetList()
         
         VerticalTabBar::Toggle(*tabBar)
-
+        
         ; Show first tab
         OnTabClick(0)
         SetActiveTab(*tabBar,0)
@@ -2747,17 +2833,17 @@ Module MonitorDialog
     CompilerEndIf
   EndProcedure 
   
-
-
+  
+  
   *Window = AddManagedWindow("Add Container", *Gadgets, @ShowWindow(), @HandleEvent(), @RemoveWindow(),@Cleanup())
-
+  
   Global isCreated = #False 
   Procedure.i Open()
     editIndex = index
     If Not isCreated
       isCreated = #True
       CreateWindow()
-
+      
     EndIf
     ProcedureReturn OpenManagedWindow(*Window)
   EndProcedure
@@ -3467,8 +3553,8 @@ Module AppWindow
     Protected windowWidth = WindowWidth(#WIN_ID)
     Protected windowHeight = WindowHeight(#WIN_ID)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows: 
-    SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
-    SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
+      SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
+      SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
     CompilerEndIf
     Define x = 0, y = 0, width.f = windowWidth - sidebarWidth * DPI_Scale, height.f = windowHeight - buttonAreaHeight * DPI_Scale
     VerticalTabBar::Resize(*tabBar, windowWidth / DPI_Scale - sidebarWidth, windowHeight / DPI_Scale,#True )
@@ -3480,13 +3566,13 @@ Module AppWindow
     
     
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
-    SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
-    
-    ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
-    ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-    
-    RedrawWindow_(WindowID(#WIN_ID), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
+      SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
+      SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
+      
+      ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
+      ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
+      
+      RedrawWindow_(WindowID(#WIN_ID), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
     CompilerEndIf 
     
   EndProcedure
@@ -3534,10 +3620,10 @@ Module AppWindow
   Procedure SetGadgetBackgoundColor(gadget, bg)
     SetGadgetColor(gadget, #PB_Gadget_BackColor, g)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    hBrush = CreateSolidBrush_(bg)
-    AddElement(brushes())
-    brushes() = hBrush
-    SetProp_(GadgetID(gadget), "BackgroundBrush", hBrush) 
+      hBrush = CreateSolidBrush_(bg)
+      AddElement(brushes())
+      brushes() = hBrush
+      SetProp_(GadgetID(gadget), "BackgroundBrush", hBrush) 
     CompilerEndIf 
   EndProcedure 
   
@@ -3575,12 +3661,12 @@ Module AppWindow
     SetColors()
     SetGadgetColor(buttonContainer, #PB_Gadget_BackColor,buttonContainerBackground )
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    Protected bgBrush = GetProp_(GadgetID(buttonContainer), "BackgroundBrush")
-    If bgBrush
-      DeleteObject_(bgBrush)
-    EndIf 
-    buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
-    SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
+      Protected bgBrush = GetProp_(GadgetID(buttonContainer), "BackgroundBrush")
+      If bgBrush
+        DeleteObject_(bgBrush)
+      EndIf 
+      buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
+      SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
     CompilerEndIf
   EndProcedure
   
@@ -3595,9 +3681,9 @@ Module AppWindow
         
         SetWindowColor(#WIN_ID, themeBackgroundColor)
         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        SetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE, GetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE) | #WS_CLIPCHILDREN)
-        
-        SetWindowCallback(@WindowCallback())
+          SetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE, GetWindowLongPtr_(WindowID(#WIN_ID), #GWL_STYLE) | #WS_CLIPCHILDREN)
+          
+          SetWindowCallback(@WindowCallback())
         CompilerEndIf 
         BindEvent(#PB_Event_SizeWindow, @ResizeWindowCallback(),#WIN_ID)
         
@@ -3628,7 +3714,7 @@ Module AppWindow
         tabConfigs()\Name = "About"
         tabConfigs()\IconImage = imgStatus
         tabConfigs()\ClickCallback = @OnTabClick()
- 
+        
         
         ;Create vertical tab bar
         
@@ -3650,7 +3736,7 @@ Module AppWindow
         tabIndex = 0
         ; Monitors
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
-tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 20 * DPI_Scale, "XXX...")
+        tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 20 * DPI_Scale, "XXX...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         CloseGadgetList()
@@ -3659,7 +3745,7 @@ tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 2
         ; Logs
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-         tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Logs...")
+        tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Logs...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
@@ -3692,8 +3778,8 @@ tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 2
         buttonContainer = ContainerGadget(#PB_Any, 0, height , width+5, buttonAreaHeight * DPI_Scale, #PB_Container_BorderLess)
         SetGadgetColor(buttonContainer, #PB_Gadget_BackColor,buttonContainerBackground )
         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
-        SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
+          buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
+          SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
         CompilerEndIf 
         *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-Round((55+10+55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "OK")
         SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_BackColor, COLOR_ACCENT)
@@ -3768,17 +3854,17 @@ tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 2
     CompilerEndIf
   EndProcedure 
   
-
-
+  
+  
   *Window = AddManagedWindow("Add Container", *Gadgets, @ShowWindow(), @HandleEvent(), @RemoveWindow(),@Cleanup())
-
+  
   Global isCreated = #False 
   Procedure.i Open()
     editIndex = index
     If Not isCreated
       isCreated = #True
       CreateWindow()
-       
+      
     EndIf
     
     ProcedureReturn OpenManagedWindow(*Window)
@@ -3961,7 +4047,7 @@ Module Execute
         EndIf
         
       Case #PB_Event_Timer
-
+        
         If notificationRunningWinID <> 0 And Window = notificationRunningWinID
           RemoveWindowTimer(notificationRunningWinID, #Notification_Running_TimerID)
           CloseWindow(notificationRunningWinID)
@@ -4001,8 +4087,8 @@ Module Execute
                                           "exit" + Chr(10) +
                                           "echo Done"
     
+    
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-      IsDarkModeActive()
       SetWindowCallback(@WindowCallback())
     CompilerEndIf
     
@@ -4010,30 +4096,30 @@ Module Execute
     
     
     AppWindow::CreateWindow()
-
+    
     MainWindow::Open()
     MonitorDialog::CreateWindow()
-                  
+    
     AppWindow::Open()
-
+    
     RunEventLoop(@HandleMainEvent())
     
     
   EndModule
   
   
-
+  
 EndProcedure
 
-  Execute::StartApp()
-  ; Cleanup
-  
-  WindowManager::CleanupManagedWindows()
-  App::CleanupApp() 
-  
+Execute::StartApp()
+; Cleanup
+
+WindowManager::CleanupManagedWindows()
+App::CleanupApp() 
+
 ; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
-; CursorPosition = 4013
-; FirstLine = 4000
+; CursorPosition = 165
+; FirstLine = 145
 ; Folding = ----------------------------------
 ; Optimizer
 ; EnableThread
