@@ -64,19 +64,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   
   
   
-  ; -------------------- Dark Mode Helpers --------------------
-  Global IsDarkModeActiveCached = #False
-  Procedure IsDarkModeActive()
-    Protected key, result = 0, value.l, size = SizeOf(Long)
-    If RegOpenKeyEx_(#HKEY_CURRENT_USER, "Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", 0, #KEY_READ, @key) = #ERROR_SUCCESS
-      If RegQueryValueEx_(key, "AppsUseLightTheme", 0, 0, @value, @size) = #ERROR_SUCCESS
-        result = Bool(value = 0) ; 0 = dark mode
-        IsDarkModeActiveCached = result
-      EndIf
-      RegCloseKey_(key)
-    EndIf
-    ProcedureReturn result
-  EndProcedure
+
   
   
   
@@ -85,14 +73,14 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   Procedure ApplyThemeToWindowHandle(hWnd)
     
     Protected bg, fg
+    
+    bg = themeBackgroundColor 
+    fg = themeForegroundColor 
+  
     If IsDarkModeActiveCached
-      bg = RGB(30,30,30)
-      fg = RGB(220,220,220)
       SetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND, CreateSolidBrush_(bg))
       InvalidateRect_(hWnd, #Null, #True)
     Else
-      bg = RGB(255,255,255)
-      fg = RGB(0,0,0)
       Protected currentBrush = GetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND)
       
       ; Set to default system color
@@ -109,18 +97,16 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       InvalidateRect_(hWnd, #Null, #True)
     EndIf
     
-    
+    If IsDarkModeActiveCached
+      SetWindowThemeDynamic(hWnd, "DarkMode_Explorer")
+    Else
+      SetWindowThemeDynamic(hWnd, "Explorer")
+    EndIf
     ; Title bar
     SetDarkTitleBar(hWnd, IsDarkModeActiveCached)
   EndProcedure
   
-  Procedure ApplyWindowTheme(winID)
-    If IsDarkModeActiveCached
-      SetWindowThemeDynamic(WindowID(winID), "DarkMode_Explorer")
-    Else
-      SetWindowThemeDynamic(WindowID(winID), "Explorer")
-    EndIf
-  EndProcedure
+
   
   Procedure ApplyGadgetTheme(gadgetId)
     
@@ -199,13 +185,8 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     
     Protected bg 
     Protected fg 
-    If IsDarkModeActiveCached
-      bg = RGB(30, 30, 30)
-      fg = RGB(255, 255, 255)
-    Else
-      bg = RGB(255, 255, 255)
-      fg = RGB(30, 30, 30) 
-    EndIf
+    bg = themeBackgroundColor 
+    fg = themeForegroundColor 
     
     If msg = #WM_NOTIFY
       Protected *nmhdr.NMHDR = lParam
@@ -240,13 +221,8 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   Procedure ApplyListIconTheme(listHwnd)
     Protected bg 
     Protected fg 
-    If IsDarkModeActiveCached
-      bg = RGB(30, 30, 30)
-      fg = RGB(255, 255, 255)
-    Else
-      bg = RGB(255, 255, 255)
-      fg = RGB(30, 30, 30) 
-    EndIf
+    bg = themeBackgroundColor 
+    fg = themeForegroundColor 
     
     ; Set colors directly via Windows messages instead of SetGadgetColor
     SendMessage_(listHwnd, #LVM_SETBKCOLOR, 0, bg)
@@ -286,16 +262,12 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   Global NewMap StaticControlThemeProcs()
   
   Procedure StaticControlThemeProc(hwnd, msg, wParam, lParam)
+
     Protected oldProc = StaticControlThemeProcs(Str(hwnd))
     Protected fg, bg
-    
-    If IsDarkModeActiveCached
-      bg = RGB(30, 30, 30)
-      fg = RGB(255, 255, 255)
-    Else
-      bg = RGB(255, 255, 255)
-      fg = RGB(30, 30, 30)
-    EndIf
+
+    bg = themeBackgroundColor 
+    fg = themeForegroundColor 
     Protected result
     Select msg
       Case #WM_SETTEXT
@@ -355,7 +327,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         ProcedureReturn 1
     EndSelect
     
-    ProcedureReturn CallWindowProc_(oldProc, hwnd, msg, wParam, lParam)
+    ProcedureReturn CallWindowProc_(oldProc, hwnd, msg, wParam, lParam) ; sometimes stackoveflow, fix wip
   EndProcedure
   
   
@@ -538,11 +510,7 @@ Procedure ApplyColorToSelection(hEditor, fg.l)
   Protected bg.l
   
   ; Set background color based on dark mode
-  If IsDarkModeActiveCached
-    bg = RGB(30, 30, 30) ; Dark mode background
-  Else
-    bg = RGB(255, 255, 255) ; Light mode background
-  EndIf
+  bg = themeBackgroundColor 
   
   ; Adjust foreground color for visibility
   fg = AdjustForegroundColor(fg, bg)
@@ -716,7 +684,8 @@ EndProcedure
 
   
   
-  Procedure ApplyEditorGadgetTheme(gadgetHandle)
+Procedure ApplyEditorGadgetTheme(gadgetHandle)
+  
   Protected style, exStyle
   Protected Result.l
   Protected *buffer
@@ -762,6 +731,7 @@ Protected leftMargin = 10  ; Pixels
   
   exStyle = exStyle & ~#WS_EX_SIZEGRIP
   SetWindowLong_(gadgetHandle, #GWL_EXSTYLE, exStyle)
+  
   
   ; Subclass the window to block resize grip detection (only once)
   If GetProp_(gadgetHandle, "OrigWndProc") = 0
@@ -882,11 +852,21 @@ EndProcedure
       ; Try setting dark theme first
       SetWindowThemeDynamic(hWnd, "DarkMode_Explorer")
       
+      
+      CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+        Protected oldProc = GetWindowLongPtr_(hWnd, #GWLP_WNDPROC)
+      CompilerElse
+        Protected oldProc = GetWindowLong_(hWnd, #GWL_WNDPROC)
+      CompilerEndIf
+            If Not FindMapElement(CheckboxThemeProcs(),Str(hWnd))
+        CheckboxThemeProcs(Str(hWnd)) = oldProc
+      EndIf 
+
       ; Subclass to handle background painting
       CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
-        CheckboxThemeProcs(Str(hWnd)) = SetWindowLongPtr_(hWnd, #GWLP_WNDPROC, @CheckboxThemeProc())
+        SetWindowLongPtr_(hWnd, #GWLP_WNDPROC, @CheckboxThemeProc())
       CompilerElse
-        CheckboxThemeProcs(Str(hWnd)) = SetWindowLong_(hWnd, #GWL_WNDPROC, @CheckboxThemeProc())
+        SetWindowLong_(hWnd, #GWL_WNDPROC, @CheckboxThemeProc())
       CompilerEndIf
     Else
       SetWindowThemeDynamic(hWnd, "Explorer")
@@ -896,20 +876,61 @@ EndProcedure
     UpdateWindow_(hWnd)
   EndProcedure
   
+  
+  ; Procedure to set the background color of a gadget using its HWND
+  Procedure SetGadgetBackgroundColorByHandle(hWnd, bg)
+    If Not hWnd
+      ProcedureReturn #False
+    EndIf
+    
+    ; Clean up existing background brush
+    Protected currentBrush = GetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND)
+    If currentBrush > 31 ; Stock objects are 0-31, only delete non-stock brushes
+      DeleteObject_(currentBrush)
+    EndIf
+    
+    ; Set new background brush
+    Protected hBrush = CreateSolidBrush_(bg)
+    SetClassLongPtr_(hWnd, #GCL_HBRBACKGROUND, hBrush)
+    
+    ; Apply theme for consistency (optional, based on your existing code)
+    If IsDarkModeActiveCached
+      SetWindowThemeDynamic(hWnd, "DarkMode_Explorer")
+    Else
+      SetWindowThemeDynamic(hWnd, "Explorer")
+    EndIf
+    
+    ; Force redraw to apply the new background color
+    InvalidateRect_(hWnd, #Null, #True)
+    UpdateWindow_(hWnd)
+    
+    ProcedureReturn #True
+    
+    
+    
+  EndProcedure
+  
+  
+  
+  
   Procedure ApplyThemeToWindowChildren(hWnd, lParam)
     Protected className.s = Space(256)
+
     Protected length = GetClassName_(hWnd, @className, 256)
     
+        
+
     If length > 0
       className = LCase(PeekS(@className))
-      
       Select className
+        Case "purecontainer", "systabcontrol32"
           
-        Case "button"
-          ; Applies to Button, CheckBox, Option gadgets
+          SetGadgetBackgroundColorByHandle(hWnd, themeBackgroundColor)
           
-          textLength2 = GetWindowTextLength_(hWnd)
+        Case "button"; Applies to Button, CheckBox, Option gadgets
+          
           style.l = GetWindowLong_(hWnd, #GWL_STYLE)
+
           If ((style & #BS_CHECKBOX) <> 0) Or ((style & #BS_AUTOCHECKBOX) <> 0)
             ApplyCheckboxTheme(hWnd)
             
@@ -917,25 +938,30 @@ EndProcedure
             ; Normal button
             ApplyGadgetTheme(hWnd)
           EndIf
-          
           ; Force repaint for checkboxes/options
-          SendMessage_(hWnd, #WM_THEMECHANGED, 0, 0)
-          InvalidateRect_(hWnd, #Null, #True)
-          
+          ;SendMessage_(hWnd, #WM_THEMECHANGED, 0, 0)
+          InvalidateRect_(hWnd, #Null, #True)          
         Case "static"
           Protected textLength = GetWindowTextLength_(hWnd)
           If textLength = 0
             ProcedureReturn #True ; probably ImageGadget
           EndIf
           
+          ; 1. Get old WndProc
           CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
-            Protected oldProc = SetWindowLongPtr_(hWnd, #GWLP_WNDPROC, @StaticControlThemeProc())
+            Protected oldProc = GetWindowLongPtr_(hWnd, #GWLP_WNDPROC)
           CompilerElse
-            Protected oldProc = SetWindowLong_(hWnd, #GWL_WNDPROC, @StaticControlThemeProc())
+            Protected oldProc = GetWindowLong_(hWnd, #GWL_WNDPROC)
           CompilerEndIf
-          
-          StaticControlThemeProcs(Str(hWnd)) = oldProc
-          
+                    If Not FindMapElement(StaticControlThemeProcs(),Str(hWnd))
+            StaticControlThemeProcs(Str(hWnd)) = oldProc
+          EndIf 
+          CompilerIf #PB_Compiler_Processor = #PB_Processor_x64
+            SetWindowLongPtr_(hWnd, #GWLP_WNDPROC, @StaticControlThemeProc())
+          CompilerElse
+            SetWindowLong_(hWnd, #GWL_WNDPROC, @StaticControlThemeProc())
+          CompilerEndIf
+         
         Case "syslistview32"
           ApplyListIconTheme(hWnd)
           
@@ -948,24 +974,27 @@ EndProcedure
       EndSelect
     EndIf
     
+
     InvalidateRect_(hWnd, #Null, #True)
+      
     ProcedureReturn #True
   EndProcedure
   
   
-
+  
   Procedure ApplyThemeHandle(hWnd)
+  
     ApplyThemeToWindowHandle(hWnd)
     EnumChildWindows_(hWnd, @ApplyThemeToWindowChildren(), 0)
-    UpdateWindow_(hWnd)    
+    UpdateWindow_(hWnd)   
   EndProcedure
   
-
+  
   
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 19
-; FirstLine = 10
-; Folding = -----
+; CursorPosition = 965
+; FirstLine = 950
+; Folding = ------
 ; EnableXP
 ; DPIAware

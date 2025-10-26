@@ -2581,7 +2581,6 @@ Procedure ShowLogs(index)
     UpdateMonitorIcon(index, patternColor(index,lastMatchPattern(index)))
     
     ScrollEditorToBottom(editorID)
-    SetEditorTextColor( index)
     
   EndIf
 EndProcedure
@@ -2994,7 +2993,8 @@ StartApp()
 
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 12
+; CursorPosition = 2565
+; FirstLine = 2562
 ; Folding = -------------
 ; Optimizer
 ; EnableThread

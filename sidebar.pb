@@ -22,10 +22,9 @@ DeclareModule App
   Global COLOR_EDITOR_BG = COLOR_BG_DARK
   Global COLOR_EDITOR_TEXT = RGB(212, 212, 212)
   Declare NormalResizeGadget(Gadget, x.f, y.f, width.f, height.f,parentsRoundingDeltaX.f = 0,parentsDeltaY.f = 0)
-  Declare AppResizeGadget(Gadget, x.f, y.f, width.f, height.f)
   Global DPI_Scale.f
   
-  
+  Global consoleFont
 EndDeclareModule
 
 
@@ -33,6 +32,19 @@ Module App
   
   ExamineDesktops()
   Global DPI_Scale.f = DesktopResolutionX()
+  
+
+    CompilerSelect #PB_Compiler_OS
+      CompilerCase #PB_OS_Windows
+        fontName$ = "Consolas"
+      CompilerCase #PB_OS_Linux
+        fontName$ = "Monospace"
+      CompilerCase #PB_OS_MacOS
+        fontName$ = "Monaco"
+    CompilerEndSelect
+    
+    Global consoleFont =  LoadFont(#PB_Any , fontName$, 8*DPI_Scale, #PB_Font_HighQuality)
+  
   
   Structure FLOATPOINT
     x.l
@@ -42,7 +54,8 @@ Module App
   
   Global NewMap GadgetPosition.FLOATPOINT ()
   
-  Procedure NormalResizeGadget(Gadget, x.f, y.f, width.f, height.f,parentsRoundingDeltaX.f = 0,parentsDeltaY.f = 0)
+  Procedure NormalResizeGadget(Gadget, x.f, y.f, width.f, height.f,parentsRoundingDeltaX.f = 0,parentsRoundingDeltaY.f = 0)
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected hWnd = GadgetID(Gadget)
     Protected hParent = GetParent_(hWnd)
     
@@ -52,7 +65,6 @@ Module App
     Protected rect.RECT
     
     Protected newX.f, newY.f, newW.f, newH.f
-    
     
     ; Get current position and size of the gadget
     If GetWindowRect_(hWnd, @rect)
@@ -72,66 +84,72 @@ Module App
       currentH = 0.0
     EndIf
     
-    
-    
     ; Use current values for #PB_Ignore, apply DPI scaling otherwise
     If DPI_Scale <= 0
       DPI_Scale = 1.0
     EndIf
     
+    
+    currentRoundingDeltaX.f = 0
     If x = #PB_Ignore
       newX = currentX
+      currentRoundingDeltaX = parentsRoundingDeltaX
     Else
       newX = x * DPI_Scale
+      ; x position did not change because of parentDiff -> let w handle diff
+      If Round(newX,#PB_Round_Nearest)-Round(newX+ parentsRoundingDeltaX,#PB_Round_Nearest)=0
+        currentRoundingDeltaX = parentsRoundingDeltaX
+      EndIf 
+      newX + parentsRoundingDeltaX
     EndIf
+        currentRoundingDeltaY.f = 0
+
     If y = #PB_Ignore
       newY = currentY
+      currentRoundingDeltaY = parentsRoundingDeltaY
+
     Else
       newY = y * DPI_Scale
+      If Round(newY,#PB_Round_Nearest)-Round(newY+ parentsRoundingDeltaY,#PB_Round_Nearest)=0
+        currentRoundingDeltaY = parentsRoundingDeltaY
+      EndIf 
+      newY + parentsRoundingDeltaY
     EndIf
+    
     If width = #PB_Ignore
       newW = currentW
     Else
+      currentRoundingDeltaX = currentRoundingDeltaX + newX -Round(newX,#PB_Round_Nearest)
       newW = width * DPI_Scale
+      If currentRoundingDeltaX<>0
+        newW = newW + currentRoundingDeltaX   
+      EndIf 
     EndIf
+    
     If height = #PB_Ignore
       newH = currentH
-    Else
+    Else  
+      currentRoundingDeltaY = currentRoundingDeltaY + newY -Round(newY,#PB_Round_Nearest)
       newH = height * DPI_Scale
+      If currentRoundingDeltaY<>0
+        newH = newH + currentRoundingDeltaY   
+      EndIf 
     EndIf
     
-    ; Round coordinates, but track rounding differences for consistency
-    
-    newX  +parentsRoundingDeltaX
-    newY + parentsDeltaY
     newX = Round(newX, #PB_Round_Nearest)
     newY = Round(newY, #PB_Round_Nearest)
     newW = Round(newW, #PB_Round_Nearest)
     newH = Round(newH, #PB_Round_Nearest)
     
- 
     SetWindowPos_(GadgetID(Gadget), #Null, newX, newY, newW, newH, flags)
-
     InvalidateRect_(GadgetID(Gadget), #Null, #False)
-    
+    CompilerElse
+      ResizeGadget(Gadget, x,y,width,height)
+    CompilerEndIf
     ProcedureReturn
   EndProcedure
   
-  
-  
-  Procedure  AppResizeGadget(Gadget, x.f, y.f, width.f, height.f)
-    
-    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-      Protected hWnd = GadgetID(Gadget)
-      SendMessage_(hWnd, #WM_SETREDRAW, 0, 0)
-      NormalResizeGadget(Gadget, x, y, width, height)
-      SendMessage_(hWnd, #WM_SETREDRAW, 1, 0)
-      RedrawWindow_(hWnd, 0, 0, #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
-    CompilerElse
-      NormalResizeGadget(Gadget, Round(x,#PB_Round_Down),Round(y,#PB_Round_Down),Round(width,#PB_Round_Down),Round(height,#PB_Round_Down))
-    CompilerEndIf
-  EndProcedure
-EndModule
+EndModule  
 
 
 
@@ -765,15 +783,22 @@ Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, *parentsRound
     SendMessage_(GadgetID(#CNT_CONTENT + index), #WM_SETREDRAW, 0, 0)
   CompilerEndIf
   
-  
   NormalResizeGadget(#CNT_CONTENT + index, #PB_Ignore, #PB_Ignore, width, #PB_Ignore,parentsRoundingDeltaX)
   
+  Debug "HandleLayout"
+Debug index
   Select index 
     Case 0:
+            Debug "#BTN_COLOR+"
+
       NormalResizeGadget(#BTN_COLOR, width-(150+10+10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore ,parentsRoundingDeltaX)
       NormalResizeGadget(#CNT_COLORPREVIEW, width-(10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+                  Debug "#BTN_COLOR-"
+
     Case 1:
+      Debug "#EDT_CMD+"
       NormalResizeGadget(#EDT_CMD,#PB_Ignore, #PB_Ignore,width-20* DPI_Scale, #PB_Ignore,parentsRoundingDeltaX) 
+      Debug "#EDT_CMD-"
     Case 2:
       NormalResizeGadget(#EDT_CMD+1000,#PB_Ignore, #PB_Ignore,width-20* DPI_Scale, #PB_Ignore,parentsRoundingDeltaX)
     Case 3:
@@ -782,8 +807,8 @@ Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, *parentsRound
   
   
   
-  NormalResizeGadget(#BTN_OK, width-Round((55+10+55+10)* DPI_Scale,#PB_Round_Up), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-  NormalResizeGadget(#BTN_CANCEL, width-Round((55+10)* DPI_Scale,#PB_Round_Up), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+  NormalResizeGadget(#BTN_OK, width-(55+10+55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+  NormalResizeGadget(#BTN_CANCEL, width-(55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
   
   
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
@@ -806,7 +831,7 @@ Procedure ResizeMainWindow()
   
   Protected windowWidth = WindowWidth(#WIN_MAIN)
   Protected windowHeight = WindowHeight(#WIN_MAIN)
-  
+
   SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
   SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
   
@@ -816,14 +841,13 @@ Procedure ResizeMainWindow()
   NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)
   NormalResizeGadget(#CNT_CONTENT + *tabBar\ActiveTabIndex, #PB_Ignore,#PB_Ignore,width,height,*tabBar\ParentsRoundingDeltaX)
   
-
   SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
   SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
   
   ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
   ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
     
-  RedrawWindow_(WindowID(#WIN_MAIN), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
+  RedrawWindow_(WindowID(#WIN_MAIN), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
   
   
 EndProcedure
@@ -1017,10 +1041,25 @@ EditorGadget(#EDT_CMD, 10 * DPI_Scale, 40 * DPI_Scale, width-20* DPI_Scale, heig
 SetGadgetColor(#EDT_CMD, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
 SetGadgetColor(#EDT_CMD, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
 
+LoadLibrary_("Msftedit.dll")
+SendMessage_(GadgetID(#EDT_CMD), #EM_SETTEXTMODE, #TM_RICHTEXT, 0)
 
+SetGadgetFont(#EDT_CMD, FontID(consoleFont))
+    
 
+rect.RECT
 
+; Get current formatting rectangle
+SendMessage_(GadgetID(#EDT_CMD), #EM_GETRECT, 0, @rect)
 
+; Adjust for padding: top=10px, bottom=10px, left=10px, right=10px
+rect\top + 5* DPI_Scale
+rect\bottom - 5* DPI_Scale
+rect\left + 5* DPI_Scale
+rect\right - 5* DPI_Scale
+
+; Apply the new rectangle
+SendMessage_(GadgetID(#EDT_CMD), #EM_SETRECT, 0, @rect)
 
 CloseGadgetList()
 
@@ -1185,11 +1224,10 @@ ForEach brushes()
   DeleteObject_(brushes())
 Next 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1098
-; FirstLine = 1074
-; Folding = -------
+; CursorPosition = 225
+; FirstLine = 192
+; Folding = ------
 ; EnableThread
 ; EnableXP
 ; DPIAware
 ; Executable = ..\..\sidebar.exe
-; DisableDebugger
