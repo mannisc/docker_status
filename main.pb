@@ -168,7 +168,7 @@ DeclareModule App
   EndStructure 
   Global NewList ThemeHandler.ThemeHandler()
   
-  
+  Global DPI_Scale.f 
 EndDeclareModule 
 
 ; -------------------- GLOBAL VARIABLES --------------------
@@ -185,7 +185,7 @@ Module App
   
   
   ExamineDesktops()
-  Global DPI_Scale.f = DesktopResolutionX()
+
   
   CompilerSelect #PB_Compiler_OS
     CompilerCase #PB_OS_Windows
@@ -196,8 +196,7 @@ Module App
       fontName$ = "Monaco"
   CompilerEndSelect
   
-  Global consoleFont =  LoadFont(#PB_Any , fontName$, 7*DPI_Scale, #PB_Font_HighQuality)
-  
+  Global consoleFont =  LoadFont(#PB_Any , fontName$, 12, #PB_Font_HighQuality)
   
   ; -------------------- Dark Mode Helpers --------------------
   Procedure IsDarkModeActive()
@@ -284,12 +283,6 @@ Module App
           currentH = 0.0
         EndIf
         
-        ; Use current values for #PB_Ignore, apply DPI scaling otherwise
-        If DPI_Scale <= 0
-          DPI_Scale = 1.0
-        EndIf
-        
-        
         currentRoundingDeltaX.f = 0
         If x = #PB_Ignore
           newX = currentX
@@ -359,7 +352,6 @@ Module App
   EndProcedure
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Procedure ShowWindowFadeInHandle(hWnd, dontWait=#False )
-      
       ShowWindow_(hWnd, #SW_SHOWNA)
       UpdateWindow_(hWnd)
       RedrawWindow_(hWnd, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
@@ -1569,7 +1561,7 @@ DeclareModule VerticalTabBar
   
   #PB_Event_RedrawHamburger = #PB_Event_FirstCustomValue
   
-  Declare.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0)
+  Declare.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0, openSidebar = #False )
   
   
   Structure VerticalTabBarData
@@ -1624,13 +1616,14 @@ Module VerticalTabBar
   
   Global DPI_Scale.f = 1
   
-  Global menuFontSize.f = 7
+  Global menuFontSize.f = 10
   Global menuFont
   
   Global colorAccent
   Global colorHover
   Global colorSideBar
   Global inactiveForegroundColor 
+  
   Procedure SetColors()
     If IsDarkModeActiveCached
       colorHover = RGB(70, 70, 70)
@@ -1728,14 +1721,14 @@ Module VerticalTabBar
           EndIf 
         Else
           ; Fallback if GetTextMetrics_ fails
-          yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 113.5 * DPI_Scale
+          yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 4 * DPI_Scale
         EndIf
         If hDC
           ReleaseDC_(GadgetID(gadget), hDC)
         EndIf
       CompilerElse
         ; Non-Windows fallback
-        yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 113.5 * DPI_Scale
+        yPos = canvasH/2 - (menuFontSize * DPI_Scale)/2 - 4 * DPI_Scale
       CompilerEndIf
       If active
         DrawText(canvasH + 2 * DPI_Scale, yPos, *tabBar\TabConfigs(tabIndex)\Name, themeForegroundColor)
@@ -1750,7 +1743,7 @@ Module VerticalTabBar
   
   
   Procedure AnimationThread(*tabBar.VerticalTabBarData)
-    Protected frames = 24 ; 8 frames for each phase (shrink and expand)
+    Protected frames = 12 ; 8 frames for each phase (shrink and expand)
     Protected frameDelay = 8 ; 20ms per frame, total 320ms (8*20ms shrink + 8*20ms expand)
     Protected i
     Protected startWidth.f = *tabBar\AnimationLineWidth
@@ -1797,7 +1790,7 @@ Module VerticalTabBar
             
   EndProcedure
   
-  Procedure.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0)
+  Procedure.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0, openSidebar = #False )
     Protected *tabBar.VerticalTabBarData = AllocateMemory(SizeOf(VerticalTabBarData))
     Protected i.i, tabCount.i
     
@@ -1813,23 +1806,36 @@ Module VerticalTabBar
       CompilerCase #PB_OS_MacOS
         fontName$ = "Monaco"
     CompilerEndSelect
-    menuFont =  LoadFont(#PB_Any , "Segoe UI", menuFontSize*DPI_Scale ,#PB_Font_HighQuality)
-    
+    menuFont =  LoadFont(#PB_Any , "Segoe UI", menuFontSize,#PB_Font_HighQuality)
     *tabBar\Window = window
-    *tabBar\SidebarWidth = Round(sidebarWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\SidebarExpandedWidth = Round(expandedWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\IsExpanded = #False
+    *tabBar\SidebarWidth = Round(sidebarWidth ,#PB_Round_Down)
+    *tabBar\SidebarExpandedWidth = Round(expandedWidth ,#PB_Round_Down)
+    *tabBar\IsExpanded = openSidebar
     *tabBar\ActiveTabIndex = 0
     *tabBar\ContentX = x + *tabBar\SidebarWidth
     *tabBar\ContentY = y
-    *tabBar\ContentWidth = Round(contentWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\ContentHeight = Round(height * DPI_Scale,#PB_Round_Down)
+    *tabBar\ContentWidth = Round(contentWidth ,#PB_Round_Down)
+    *tabBar\ContentHeight = Round(height ,#PB_Round_Down)
     *tabBar\HoveredTabIndex = -1
     *tabBar\HamburgerHovered = #False
-    *tabBar\AnimationLineWidth = Round(14.0 * DPI_Scale,#PB_Round_Down) ; Initial line width
+    *tabBar\AnimationLineWidth = Round(13.0*DPI_Scale ,#PB_Round_Down) ; Initial line width
     *tabBar\CurrentAnimationLineWidth = *tabBar\AnimationLineWidth
     *tabBar\AnimationRunning = #False
     *tabBar\window = window
+    
+    Debug "*tabBar\IsExpanded"
+    Debug *tabBar\IsExpanded
+    If *tabBar\IsExpanded
+      currentSidebarWidth = *tabBar\SidebarExpandedWidth
+      currentContentX =  *tabBar\ContentX + sidebarDifference
+      currentContentWidth = *tabBar\ContentWidth - sidebarDifference
+    Else
+      currentSidebarWidth = *tabBar\SidebarWidth
+      currentContentX =  *tabBar\ContentX 
+      currentContentWidth = *tabBar\ContentWidth 
+    EndIf
+    
+    
     
     ; Count tabs
     tabCount = ListSize(tabConfigs()) 
@@ -1846,29 +1852,31 @@ Module VerticalTabBar
     Next
     
     ; Create sidebar container
-    *tabBar\SidebarContainer = ContainerGadget(#PB_Any, x, y, *tabBar\SidebarWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+
+    *tabBar\SidebarContainer = ContainerGadget(#PB_Any, x, y, currentSidebarWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
     *tabBar\InnerSidebarContainer  = ContainerGadget(#PB_Any, 0, 0, *tabBar\SidebarExpandedWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
     SetGadgetColor(*tabBar\InnerSidebarContainer , #PB_Gadget_BackColor, colorSideBar)
     
     ; Create hamburger button (square, width = height = sidebarWidth)
-    *tabBar\HamburgerGadget = CanvasGadget(#PB_Any, 0, 5 * DPI_Scale, *tabBar\SidebarWidth, *tabBar\SidebarWidth)
+    *tabBar\HamburgerGadget = CanvasGadget(#PB_Any, 0, 5 , *tabBar\SidebarWidth, *tabBar\SidebarWidth)
     GadgetToolTip(*tabBar\HamburgerGadget, "Toggle Menu")
     
     ; Create tab buttons
     Dim *tabBar\TabGadgets(tabCount - 1)
     
     For i = 0 To tabCount - 1
-      *tabBar\TabGadgets(i) = CanvasGadget(#PB_Any, 0, 10 * DPI_Scale + *tabBar\SidebarWidth * (i + 1), expandedWidth * DPI_Scale, *tabBar\SidebarWidth)
+      *tabBar\TabGadgets(i) = CanvasGadget(#PB_Any, 0, 10  + *tabBar\SidebarWidth * (i + 1), expandedWidth , *tabBar\SidebarWidth)
       If Not *tabBar\IsExpanded
         GadgetToolTip(*tabBar\TabGadgets(i),  *tabBar\TabConfigs(i)\Name )
       EndIf
     Next
     CloseGadgetList()
     CloseGadgetList()
-    
+    Debug "currentSidebarWidth"
+    Debug currentSidebarWidth
     ; Create content container
-    *tabBar\ContentContainer = ContainerGadget(#PB_Any, x + *tabBar\SidebarWidth, y, *tabBar\ContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
-    *tabBar\InnerContentContainer = ContainerGadget(#PB_Any, 0, 0, *tabBar\ContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+    *tabBar\ContentContainer = ContainerGadget(#PB_Any, x + currentSidebarWidth, y, currentContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
+    *tabBar\InnerContentContainer = ContainerGadget(#PB_Any, 0, 0, currentContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
     SetGadgetColor(*tabBar\InnerContentContainer, #PB_Gadget_BackColor, themeBackgroundColor)
     
     CloseGadgetList()
@@ -2029,11 +2037,13 @@ EndProcedure
   
   
   Procedure Resize(*tabBar.VerticalTabBarData,contentWidth.i, contentHeight.i,externalResize = #False )
-    *tabBar\ContentWidth = Round(contentWidth * DPI_Scale,#PB_Round_Down)
-    *tabBar\ContentHeight = Round(contentHeight * DPI_Scale,#PB_Round_Down)
+    
+    *tabBar\ContentWidth = contentWidth
+    *tabBar\ContentHeight = contentHeight
     
     newContentWidth = DoResize(*tabBar,externalResize)
     NormalResizeGadget(*tabBar\InnerSidebarContainer, #PB_Ignore,#PB_Ignore, #PB_Ignore, *tabBar\ContentHeight,0,0)
+    
     ;NormalResizeGadget(*tabBar\InnerContentContainer, #PB_Ignore, #PB_Ignore, newContentWidth, *tabBar\ContentHeight0,0,hDefer)
     ;NormalResizeGadget(*tabBar\ContentContainer, #PB_Ignore, #PB_Ignore, newContentWidth, *tabBar\ContentHeight0,0,hDefer)
     
@@ -2310,21 +2320,17 @@ Module MonitorDialog
   ExamineDesktops()
   desktopWidth =  DesktopWidth(0)
   
-  
-  If desktopWidth >= 1920
-    DPI_Scale = MaxF(1.5,DPI_Scale)
-  ElseIf desktopWidth > 1024
-    DPI_Scale = MaxF(1.25,DPI_Scale)
-  EndIf 
+
   
   
   Global buttonContainer
   
-  Global windowWidth = 500
-  Global windowHeight = 300
-  Global sidebarExtendedWidth = 110
-  Global buttonAreaHeight = 37
-  Global sidebarWidth = 28
+  Global windowWidth = 700
+  Global windowHeight = 450
+  Global sidebarExtendedWidth = 160
+  Global buttonAreaHeight = 51
+  Global sidebarWidth = 40
+  Global buttonHeight = 30
   
   Global buttonContainerBackground
   
@@ -2345,15 +2351,12 @@ Module MonitorDialog
     SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
     SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
     
-    Define x = 0, y = 0, width.f = windowWidth - sidebarWidth * DPI_Scale, height.f = windowHeight - buttonAreaHeight * DPI_Scale
-    VerticalTabBar::Resize(*tabBar, windowWidth / DPI_Scale - sidebarWidth, windowHeight / DPI_Scale,#True )
+    Define x = 0, y = 0, width.f = windowWidth - sidebarWidth , height.f = windowHeight - buttonAreaHeight 
+    VerticalTabBar::Resize(*tabBar, windowWidth - sidebarWidth, windowHeight ,#True )
     
     NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)
     
     NormalResizeGadget(tabIds(*tabBar\ActiveTabIndex), #PB_Ignore,#PB_Ignore,width,height,*tabBar\ParentsRoundingDeltaX)
-    
-    
-    
     
     SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
     SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
@@ -2425,18 +2428,18 @@ Module MonitorDialog
     
     Select index 
       Case 0:        
-        NormalResizeGadget(*Gadgets\BtnChooseColor, width-(150+10+10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore ,parentsRoundingDeltaX)
-        NormalResizeGadget(*Gadgets\ContainerColorPreview, width-(10+10) * DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+        NormalResizeGadget(*Gadgets\BtnChooseColor, width-(150+10+20+15) , #PB_Ignore, #PB_Ignore, #PB_Ignore ,parentsRoundingDeltaX)
+        NormalResizeGadget(*Gadgets\ContainerColorPreview, width-(20+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
       Case 1:
-        NormalResizeGadget(*Gadgets\StartCommandEdit,#PB_Ignore, #PB_Ignore,width-20* DPI_Scale, #PB_Ignore,parentsRoundingDeltaX) 
+        NormalResizeGadget(*Gadgets\StartCommandEdit,#PB_Ignore, #PB_Ignore,width-20, #PB_Ignore,parentsRoundingDeltaX) 
       Case 2:
-        NormalResizeGadget(*Gadgets\StopCommandEdit,#PB_Ignore, #PB_Ignore,width-20* DPI_Scale, #PB_Ignore,parentsRoundingDeltaX)
+        NormalResizeGadget(*Gadgets\StopCommandEdit,#PB_Ignore, #PB_Ignore,width-20, #PB_Ignore,parentsRoundingDeltaX)
       Case 3:
         NormalResizeGadget(*Gadgets\DirBrowser,#PB_Ignore, #PB_Ignore,width-20, #PB_Ignore,parentsRoundingDeltaX)
     EndSelect
     
-    NormalResizeGadget(*Gadgets\BtnOk, width-(55+10+55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-    NormalResizeGadget(*Gadgets\BtnCancel, width-(55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+    NormalResizeGadget(*Gadgets\BtnOk, width-(85+15+85+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+    NormalResizeGadget(*Gadgets\BtnCancel, width-(85+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
     
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
@@ -2469,7 +2472,7 @@ Module MonitorDialog
   Procedure.i CreateWindow()
     If Not IsWindow(#WIN_ID)
       ; Create main window with DPI scaling
-      If OpenWindow(#WIN_ID, 0, 0, windowWidth * DPI_Scale, windowHeight * DPI_Scale, "Monitor - VS Code Style", 
+      If OpenWindow(#WIN_ID, 0, 0, windowWidth , windowHeight , "Monitor - VS Code Style", 
                     #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget|#PB_Window_MaximizeGadget| #PB_Window_SizeGadget | #PB_Window_Invisible)
         
         
@@ -2525,7 +2528,7 @@ Module MonitorDialog
         
         ;Create vertical tab bar
         
-        *tabBar = VerticalTabBar::Create(#WIN_ID, 0, 0, sidebarWidth, sidebarExtendedWidth, windowWidth-sidebarWidth, windowHeight, tabConfigs(),DPI_Scale, @handleLayout())
+        *tabBar = VerticalTabBar::Create(#WIN_ID, 0, 0, sidebarWidth, sidebarExtendedWidth, windowWidth-sidebarWidth, windowHeight, tabConfigs(),DPI_Scale, @handleLayout(), #True)
         *monitorTabBar = *tabBar
         
         AddElement(ThemeHandler())
@@ -2537,16 +2540,16 @@ Module MonitorDialog
         OpenGadgetList(InnerContentContainer)
         
         ; Content area containers - now inside the TabBar's content container
-        Define x = 0, y = 0, width.f = (windowWidth-sidebarWidth) * DPI_Scale, height.f = 1+(windowHeight- buttonAreaHeight)* DPI_Scale
+        Define x = 0, y = 0, width.f = windowWidth-sidebarExtendedWidth, height.f = windowHeight- buttonAreaHeight
         
         tabIndex = 0
         ; General
         tabIds(tabIndex) =  ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-        *Gadgets\BtnChooseColor = ButtonGadget(#PB_Any, width-(150+10+10+10) * DPI_Scale, 10 * DPI_Scale, 150 * DPI_Scale, 20 * DPI_Scale, "Select Monitor Color...")
+        *Gadgets\BtnChooseColor = ButtonGadget(#PB_Any, width-(150+10+20+15) , 10 , 150 , buttonHeight, "Select Monitor Color...")
         SetGadgetColor(*Gadgets\BtnChooseColor, #PB_Gadget_BackColor, RGB(60, 60, 60))
         SetGadgetColor(*Gadgets\BtnChooseColor, #PB_Gadget_FrontColor, themeForegroundColor)
-        *Gadgets\ContainerColorPreview = ContainerGadget(#PB_Any, width-(10+10) * DPI_Scale, 15 * DPI_Scale, 10 * DPI_Scale, 10 * DPI_Scale, #PB_Container_BorderLess)
+        *Gadgets\ContainerColorPreview = ContainerGadget(#PB_Any, width-(20+15) , 15 , 20 , 20 , #PB_Container_BorderLess)
         CloseGadgetList()
         SetGadgetColor(*Gadgets\ContainerColorPreview, #PB_Gadget_BackColor, PatternColor)
         
@@ -2555,7 +2558,7 @@ Module MonitorDialog
         tabIndex + 1
         ; STart Command
         tabIds(tabIndex) =  ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
-        cg = ComboBoxGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, 150 * DPI_Scale, 15 * DPI_Scale)
+        cg = ComboBoxGadget(#PB_Any, 10 , 10 , 150 , 15 )
         AddGadgetItem(cg, -1,"Powershell")   
         AddGadgetItem(cg, -1,"CMD")
         AddGadgetItem(cg, -1,"WSL")
@@ -2566,7 +2569,7 @@ Module MonitorDialog
         SetGadgetColor(cg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
         
-        *Gadgets\StartCommandEdit =  EditorGadget(#PB_Any, 10 * DPI_Scale, 40 * DPI_Scale, width-20* DPI_Scale, height - 100 * DPI_Scale)
+        *Gadgets\StartCommandEdit =  EditorGadget(#PB_Any, 10 , 40 , width-20, height - 100 )
         SetGadgetColor(*Gadgets\StartCommandEdit, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(*Gadgets\StartCommandEdit, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
@@ -2595,7 +2598,7 @@ Module MonitorDialog
         ; Stop Command
         tabIds(tabIndex) =  ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-        cg = ComboBoxGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, 150 * DPI_Scale, 15 * DPI_Scale)
+        cg = ComboBoxGadget(#PB_Any, 10 , 10 , 150 , 15 )
         AddGadgetItem(cg, -1,"Powershell")   
         AddGadgetItem(cg, -1,"CMD")
         AddGadgetItem(cg, -1,"WSL")
@@ -2606,7 +2609,7 @@ Module MonitorDialog
         SetGadgetColor(cg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
         
-        *Gadgets\StopCommandEdit =  EditorGadget(#PB_Any, 10 * DPI_Scale, 40 * DPI_Scale, width-20* DPI_Scale, height - 100 * DPI_Scale)
+        *Gadgets\StopCommandEdit =  EditorGadget(#PB_Any, 10 , 40 , width-20, height - 100 )
         
         SetGadgetColor(*Gadgets\StopCommandEdit, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(*Gadgets\StopCommandEdit, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
@@ -2619,7 +2622,7 @@ Module MonitorDialog
         ; Directory
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-        *Gadgets\DirBrowser = ExplorerListGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "*.*", #PB_Explorer_MultiSelect)
+        *Gadgets\DirBrowser = ExplorerListGadget(#PB_Any, 10 , 10 , width-20, height-20 , "*.*", #PB_Explorer_MultiSelect)
         SetGadgetColor(*Gadgets\DirBrowser, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(*Gadgets\DirBrowser, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         CloseGadgetList()
@@ -2628,14 +2631,14 @@ Module MonitorDialog
         ; Status
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-        *Gadgets\StatusNotifications = CheckBoxGadget(#PB_Any, 10 * DPI_Scale, 200 * DPI_Scale, 200 * DPI_Scale, 20 * DPI_Scale, "Enable Notifications")
+        *Gadgets\StatusNotifications = CheckBoxGadget(#PB_Any, 10 , 200 , 200 , 20 , "Enable Notifications")
         
         CloseGadgetList()
         
         tabIndex + 1
         ; Reaction
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
-        tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Reaction content goes here.")
+        tg = TextGadget(#PB_Any, 10 , 10 , width-20 , height-20 , "Reaction content goes here.")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         CloseGadgetList()
@@ -2643,10 +2646,6 @@ Module MonitorDialog
         tabIndex + 1
         ; Filter
         tabIds(tabIndex) =  ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
-        ; tgx = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Filter content goes here.")
-        ; SetGadgetColor(tgx, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
-        ; SetGadgetColor(tgx, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
-        
         wv= WebViewGadget(#PB_Any,0,0, width, height)
         SetGadgetText(wv, "http://www.google.de")
         
@@ -2658,23 +2657,23 @@ Module MonitorDialog
         
         
         
-        buttonContainer = ContainerGadget(#PB_Any, 0, height , width+5, buttonAreaHeight * DPI_Scale, #PB_Container_BorderLess)
+        buttonContainer = ContainerGadget(#PB_Any, 0, height , width, buttonAreaHeight , #PB_Container_BorderLess)
         SetGadgetColor(buttonContainer, #PB_Gadget_BackColor,buttonContainerBackground )
         
         buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
         SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
         
-        *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-Round((55+10+55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "OK")
+         *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-(85+15+85+15), 10 , 85, buttonHeight, "OK")
         SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_BackColor, COLOR_ACCENT)
         SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_FrontColor, RGB(255, 255, 255))
         
-        *Gadgets\BtnCancel = ButtonGadget(#PB_Any, width-Round((55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "Cancel")
+        *Gadgets\BtnCancel = ButtonGadget(#PB_Any, width-(85+15), 10 , 85 , buttonHeight , "Cancel")
         SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_BackColor, RGB(60, 60, 60))
         SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_FrontColor, themeForegroundColor)
         CloseGadgetList()
         CloseGadgetList()
         
-        VerticalTabBar::Toggle(*tabBar)
+        ;VerticalTabBar::Toggle(*tabBar)
 
         ; Show first tab
         OnTabClick(0)
@@ -3432,22 +3431,17 @@ Module AppWindow
   
   ExamineDesktops()
   desktopWidth =  DesktopWidth(0)
-  
-  
-  If desktopWidth >= 1920
-    DPI_Scale = MaxF(1.5,DPI_Scale)
-  ElseIf desktopWidth > 1024
-    DPI_Scale = MaxF(1.25,DPI_Scale)
-  EndIf 
-  
-  
+  Debug "DPI_Scale 1"
+  Debug DPI_Scale
+
   Global buttonContainer
   
-  Global windowWidth = 500
-  Global windowHeight = 300
-  Global sidebarExtendedWidth = 110
-  Global buttonAreaHeight = 37
-  Global sidebarWidth = 28
+  Global windowWidth = 650
+  Global windowHeight = 400
+  Global sidebarExtendedWidth = 160
+  Global buttonAreaHeight = 51
+  Global sidebarWidth = 40
+  Global buttonHeight = 30
   
   Global buttonContainerBackground
   
@@ -3468,8 +3462,8 @@ Module AppWindow
     SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
     SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
     
-    Define x = 0, y = 0, width.f = windowWidth - sidebarWidth * DPI_Scale, height.f = windowHeight - buttonAreaHeight * DPI_Scale
-    VerticalTabBar::Resize(*tabBar, windowWidth / DPI_Scale - sidebarWidth, windowHeight / DPI_Scale,#True )
+    Define x = 0, y = 0, width.f = windowWidth - sidebarWidth , height.f = windowHeight - buttonAreaHeight 
+    VerticalTabBar::Resize(*tabBar, windowWidth - sidebarWidth, windowHeight ,#True )
     
     NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)
     
@@ -3550,8 +3544,8 @@ Module AppWindow
     ;TODO
     
     
-    NormalResizeGadget(*Gadgets\BtnOk, width-(55+10+55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-    NormalResizeGadget(*Gadgets\BtnCancel, width-(55+10)* DPI_Scale, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+    NormalResizeGadget(*Gadgets\BtnOk, width-(85+15+85+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+    NormalResizeGadget(*Gadgets\BtnCancel, width-(85+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
     
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
@@ -3562,6 +3556,7 @@ Module AppWindow
   
   
   Procedure.i ShowWindow()
+    Debug "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!ShowWindow"
     ShowWindowFadeIn(#WIN_ID)
     ProcedureReturn #WIN_ID
   EndProcedure 
@@ -3584,9 +3579,17 @@ Module AppWindow
   Procedure.i CreateWindow()
     If Not IsWindow(#WIN_ID)
       ; Create main window with DPI scaling
-      If OpenWindow(#WIN_ID, 0, 0, windowWidth * DPI_Scale, windowHeight * DPI_Scale, "Monitor - VS Code Style", 
+      If OpenWindow(#WIN_ID, 0, 0, windowWidth , windowHeight , "Monitor - VS Code Style", 
                     #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget|#PB_Window_MaximizeGadget| #PB_Window_SizeGadget | #PB_Window_Invisible)
         
+         Debug "DPI_Scale 2"
+         Debug DPI_Scale
+         
+         
+          Debug "DPI_Scale 3"
+         Debug DPI_Scale
+         
+         
         SetColors()
         
         SetWindowColor(#WIN_ID, themeBackgroundColor)
@@ -3640,12 +3643,12 @@ Module AppWindow
         OpenGadgetList(InnerContentContainer)
         
         ; Content area containers - now inside the TabBar's content container
-        Define x = 0, y = 0, width.f = (windowWidth-sidebarWidth) * DPI_Scale, height.f = 1+(windowHeight- buttonAreaHeight)* DPI_Scale
+        Define x = 0, y = 0, width.f = windowWidth-sidebarWidth , height.f = (windowHeight - buttonAreaHeight)
         
         tabIndex = 0
         ; Monitors
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
-tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 20 * DPI_Scale, "XXX...")
+        tg = TextGadget(#PB_Any, 10 , 10 , width-20 , 20 , "XXX...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         CloseGadgetList()
@@ -3654,7 +3657,7 @@ tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 2
         ; Logs
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-         tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Logs...")
+         tg = TextGadget(#PB_Any, 10 , 10 , width-20 , height-20 , "Logs...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
@@ -3664,7 +3667,7 @@ tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 2
         ; Extensions
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-        tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "Extensions...")
+        tg = TextGadget(#PB_Any, 10 , 10 , width-20 , height-20 , "Extensions...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
@@ -3674,27 +3677,26 @@ tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, 2
         ; About
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-        tg = TextGadget(#PB_Any, 10 * DPI_Scale, 10 * DPI_Scale, width-20 * DPI_Scale, height-20 * DPI_Scale, "About...")
+        tg = TextGadget(#PB_Any, 10 , 10 , width-20 , height-20 , "About...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
         CloseGadgetList()
         
-        
-        
+
         ; Bottom buttons
         
-        buttonContainer = ContainerGadget(#PB_Any, 0, height , width+5, buttonAreaHeight * DPI_Scale, #PB_Container_BorderLess)
+        buttonContainer = ContainerGadget(#PB_Any, 0, height , width, buttonAreaHeight , #PB_Container_BorderLess)
         SetGadgetColor(buttonContainer, #PB_Gadget_BackColor,buttonContainerBackground )
         
         buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
         SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
         
-        *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-Round((55+10+55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "OK")
+        *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-(85+15+85+15), 10 , 85, buttonHeight, "OK")
         SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_BackColor, COLOR_ACCENT)
         SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_FrontColor, RGB(255, 255, 255))
         
-        *Gadgets\BtnCancel = ButtonGadget(#PB_Any, width-Round((55+10) * DPI_Scale,#PB_Round_Down), 8 * DPI_Scale, 55 * DPI_Scale, 20 * DPI_Scale, "Cancel")
+        *Gadgets\BtnCancel = ButtonGadget(#PB_Any, width-(85+15), 10 , 85 , buttonHeight , "Cancel")
         SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_BackColor, RGB(60, 60, 60))
         SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_FrontColor, themeForegroundColor)
         CloseGadgetList()
@@ -4003,14 +4005,22 @@ Module Execute
     
     LoadSettings()
     
+    DPI_Scale.f = DesktopResolutionX()
+    If DPI_Scale <= 0
+      DPI_Scale = 1.0
+    EndIf
+    
     
     AppWindow::CreateWindow()
 
-    ;MainWindow::Open()
+  
     MonitorDialog::CreateWindow()
-                  
+    
+    MainWindow::Open()           
     AppWindow::Open()
-
+    
+    MonitorDialog::Open()
+    
     RunEventLoop(@HandleMainEvent())
     
     
@@ -4027,8 +4037,8 @@ EndProcedure
   App::CleanupApp() 
   
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2134
-; FirstLine = 2120
+; CursorPosition = 2551
+; FirstLine = 2534
 ; Folding = -------------------------------
 ; Optimizer
 ; EnableThread

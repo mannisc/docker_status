@@ -1,4 +1,8 @@
-﻿DeclareModule App
+﻿; DPI Detection at the very top - exactly as requested
+ExamineDesktops()
+Global DPI_Scale.f = DesktopResolutionX()
+
+DeclareModule App
   Global IsDarkModeActiveCached = #False
   Global darkThemeBackgroundColor = RGB(30,30,30)
   Global darkThemeForegroundColor = RGB(255, 255, 255)
@@ -18,7 +22,6 @@ DeclareModule ModernListElement
   Prototype.i ProtoCreateGadget(parentGadget.i, x.i, y.i, width.i, height.i)
   Prototype.i ProtoHandleGadgetEvent(eventGadget.i, event.i)
   Prototype ProtoDestroyGadget(gadget.i)
-  ; Define GadgetInterface with Prototypes at the top
   Structure GadgetInterface
     *Create.ProtoCreateGadget
     *HandleEvent.ProtoHandleGadgetEvent
@@ -28,8 +31,7 @@ DeclareModule ModernListElement
   Declare Remove(gadget.i, rowGadget.i, type.i, elementIndex.i)
   Declare HandleEvent(eventGadget.i, event.i)
   
-  
-   Structure ModernListElementData
+  Structure ModernListElementData
     RowGadget.i
     Gadget.i
     Type.i
@@ -43,22 +45,27 @@ DeclareModule ModernListElement
   EndStructure
   
   Global NewMap ElementMap.ModernListElementData()
-  
 EndDeclareModule
 
 Module ModernListElement
- 
-  
   Procedure CreateElement(rowGadget.i, x.i, y.i, width.i, height.i, type.i, content.s, elementIndex.i, *interface.GadgetInterface=0)
     Protected g.i = 0
+    Protected containerGadget.i = 0
+    Protected gadgetToStore.i = 0
+    
     If type = #Element_Gadget And *interface
-      g = *interface\Create(rowGadget, x, y, width, height)
+      containerGadget = ContainerGadget(#PB_Any, x, y, width, height)
+      g = *interface\Create(containerGadget, 0, 0, width, height)
+      CloseGadgetList()
+      gadgetToStore = containerGadget
+    Else
+      gadgetToStore = g
     EndIf
     
     Protected key$ = Str(rowGadget) + "_" + Str(elementIndex)
     AddMapElement(ElementMap(), key$)
     ElementMap()\RowGadget = rowGadget
-    ElementMap()\Gadget = g
+    ElementMap()\Gadget = gadgetToStore
     ElementMap()\Type = type
     ElementMap()\Content = content
     ElementMap()\X = x
@@ -70,7 +77,7 @@ Module ModernListElement
       ElementMap()\DestroyProc = *interface\Destroy
     EndIf
     
-    ProcedureReturn g
+    ProcedureReturn ElementMap()\Gadget
   EndProcedure
   
   Procedure Remove(gadget.i, rowGadget.i, type.i, elementIndex.i)
@@ -88,18 +95,42 @@ Module ModernListElement
   EndProcedure
   
   Procedure HandleEvent(eventGadget.i, event.i)
+    Debug "HANDLE EVENT"
+    Debug eventGadget
+    Debug MapSize(ElementMap())
     Protected handled = #False
+    Debug ""
     If eventGadget
       ForEach ElementMap()
+        
+        Debug ElementMap()\Gadget
+        
+        If ElementMap()\RowGadget = eventGadget
+           Debug "FOUND ROW"
+          EndIf 
+        If ElementMap()\Gadget = eventGadget
+           Debug "FOUND GADGET"
+        EndIf 
+        
         If ElementMap()\RowGadget = eventGadget Or ElementMap()\Gadget = eventGadget
-          If ElementMap()\Type = #Element_Gadget And ElementMap()\Gadget = eventGadget And ElementMap()\EventProc
-            handled = ElementMap()\EventProc(eventGadget, event)
+          Debug "FOUND CELL GADGET"
+          If ElementMap()\Type = #Element_Gadget And ElementMap()\EventProc
+            Protected actualGadget.i = 0
+            If IsGadget(ElementMap()\Gadget)
+              actualGadget = GetGadgetData(ElementMap()\Gadget)
+              Debug "actual Gadget"
+              Debug actualGadget
+              If actualGadget = 0
+                actualGadget = eventGadget
+              EndIf
+              handled = ElementMap()\EventProc(actualGadget, event)
+            EndIf
           EndIf
           If Not handled
             Select event
               Case #PB_EventType_LeftClick
-                If ElementMap()\Type = #Element_Gadget And ElementMap()\Gadget = eventGadget
-                  Debug "Clicked gadget: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
+                If ElementMap()\Type = #Element_Gadget And (ElementMap()\Gadget = eventGadget)
+                  Debug "Clicked gadget container: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
                   handled = #True
                 ElseIf ElementMap()\RowGadget = eventGadget
                   Protected mx.i = GetGadgetAttribute(eventGadget, #PB_Canvas_MouseX)
@@ -112,8 +143,8 @@ Module ModernListElement
                 EndIf
                 
               Case #PB_EventType_Change
-                If ElementMap()\Type = #Element_Gadget And ElementMap()\Gadget = eventGadget
-                  Debug "Gadget changed: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + "), Value: " + GetGadgetText(eventGadget)
+                If ElementMap()\Type = #Element_Gadget
+                  Debug "Gadget changed: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
                   handled = #True
                 EndIf
                 
@@ -142,6 +173,7 @@ Module ModernListElement
         EndIf
       Next
     EndIf
+     Debug ""
     ProcedureReturn handled
   EndProcedure
 EndModule
@@ -151,35 +183,35 @@ DeclareModule ModernList
   UseModule ModernListElement
   
   Structure ListElement
-    Type.i      ; One of ElementTypes
-    Content.s   ; Text string, image ID (for gadgets, leave empty or use for custom data)
-    Width.i     ; Fixed width in pixels (DPI-scaled)
-    Alignment.i ; 0: left, 1: center, 2: right
-    ForeColor.i ; Optional custom foreground color (normal)
-    BackColor.i ; Optional custom background color (normal)
+    Type.i
+    Content.s
+    Width.i
+    Alignment.i
+    ForeColor.i
+    BackColor.i
     HoveredForeColor.i
     SelectedForeColor.i
     SelectedHoveredForeColor.i
     HoveredBackColor.i
     SelectedBackColor.i
     SelectedHoveredBackColor.i
-    TintColor.i ; RGBA for normal (images)
+    TintColor.i
     HoveredTintColor.i
     SelectedTintColor.i
     SelectedHoveredTintColor.i
-    Gadget.i    ; Stored gadget ID for cleanup
-    *Interface.GadgetInterface ; For gadgets
+    Gadget.i
+    *Interface.GadgetInterface
   EndStructure
   
   Structure ListRow
-    List Elements.ListElement()  ; List of elements
-    Height.i                    ; Custom row height (0 = default)
-    UserData.i                  ; For sorting/filtering
+    List Elements.ListElement()
+    Height.i
+    UserData.i
   EndStructure
   
   Structure ListHeader
-    List Columns.ListElement()  ; Header columns
-    Height.i                   ; Header height
+    List Columns.ListElement()
+    Height.i
   EndStructure
   
   #PB_Event_RedrawRow = #PB_Event_FirstCustomValue + 1
@@ -191,19 +223,19 @@ DeclareModule ModernList
     ScrollArea.i
     InnerContainer.i
     HeaderHeight.i
-    RowHeight.i          ; Default row height
+    RowHeight.i
     List Rows.ListRow()
     Header.ListHeader
-    ActiveRowIndex.i     ; Selected row
-    HoveredRowIndex.i    ; Hovered row
+    ActiveRowIndex.i
+    HoveredRowIndex.i
     Width.i
     Height.i
     InnerWidth.i
     InnerHeight.i
     *ResizeCallback
-    AnimationRunning.i   ; For future animations
+    AnimationRunning.i
     DPI_Scale.f
-    Array rowGadgets.i(0) ; Store row gadgets
+    Array rowGadgets.i(0)
   EndStructure
   
   Global rowFont
@@ -220,6 +252,7 @@ DeclareModule ModernList
   Declare ClearRows(*list.ModernListData)
   Declare DoResize(*list.ModernListData, externalResize=#False)
   Declare Resize(*list.ModernListData, width.i, height.i, externalResize=#False)
+  Declare UpdateHoverState(*list.ModernListData)
   Declare HandleListEvent(*list.ModernListData, eventGadget.i, event.i)
   Declare GetSelectedRow(*list.ModernListData)
   Declare GetInnerContainer(*list.ModernListData)
@@ -232,7 +265,7 @@ Module ModernList
   Global COLOR_EDITOR_BG = RGB(0, 0, 0)
   Global COLOR_EDITOR_TEXT = RGB(212, 212, 212)
   Global PatternColor = RGB(255, 0, 0)
-  Global DPI_Scale.f = 1
+  Global Local_DPI_Scale.f = 1
   Global menuFontSize.f = 7
   Global menuFont
   Global colorAccent
@@ -282,9 +315,11 @@ Module ModernList
             Case #Element_Text
               text$ = *list\Header\Columns()\Content
               foreColor = *list\Header\Columns()\ForeColor
-              If foreColor = 0 : foreColor = inactiveForegroundColor : EndIf
+              If foreColor = 0
+                foreColor = inactiveForegroundColor
+              EndIf
               yPos = (OutputHeight() - TextHeight(text$)) / 2
-              DrawText(xPos + 5 * DPI_Scale, yPos, text$, foreColor)
+              DrawText(xPos + 5 * Local_DPI_Scale, yPos, text$, foreColor)
             Case #Element_Image
               If Val(*list\Header\Columns()\Content) > 0
                 imgID = Val(*list\Header\Columns()\Content)
@@ -344,7 +379,7 @@ Module ModernList
               backColor = *list\Rows()\Elements()\HoveredBackColor
             EndIf
           EndIf
-          If backColor
+          If backColor <> 0
             Box(xPos, 0, elemWidth, canvasH, backColor)
           EndIf
           
@@ -382,9 +417,12 @@ Module ModernList
               textH = TextHeight(text$)
               yPos = (canvasH - textH) / 2
               Select *list\Rows()\Elements()\Alignment
-                Case 1 : xAlign = (elemWidth - textW) / 2
-                Case 2 : xAlign = elemWidth - textW - 5 * DPI_Scale
-                Default: xAlign = 5 * DPI_Scale
+                Case 1
+                  xAlign = (elemWidth - textW) / 2
+                Case 2
+                  xAlign = elemWidth - textW - 5 * Local_DPI_Scale
+                Default
+                  xAlign = 5 * Local_DPI_Scale
               EndSelect
               DrawText(xPos + xAlign, yPos, text$, foreColor)
               
@@ -395,9 +433,12 @@ Module ModernList
                 imgH = ImageHeight(imgID)
                 DrawingMode(#PB_2DDrawing_AlphaBlend)
                 Select *list\Rows()\Elements()\Alignment
-                  Case 1 : xAlign = (elemWidth - imgW) / 2
-                  Case 2 : xAlign = elemWidth - imgW - 5 * DPI_Scale
-                  Default: xAlign = 5 * DPI_Scale
+                  Case 1
+                    xAlign = (elemWidth - imgW) / 2
+                  Case 2
+                    xAlign = elemWidth - imgW - 5 * Local_DPI_Scale
+                  Default
+                    xAlign = 5 * Local_DPI_Scale
                 EndSelect
                 yAlign = (canvasH - imgH) / 2
                 DrawImage(ImageID(imgID), xPos + xAlign, yAlign)
@@ -439,7 +480,9 @@ Module ModernList
     Protected rowIndex.i = 0
     ForEach *list\Rows()
       Protected rowH.i = *list\Rows()\Height
-      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      If rowH = 0
+        rowH = *list\RowHeight
+      EndIf
       If rowIndex < ArraySize(*list\rowGadgets())
         Protected rowGadget.i = *list\rowGadgets(rowIndex)
         If rowGadget And IsGadget(rowGadget)
@@ -466,7 +509,7 @@ Module ModernList
     Protected rowCount.i, yPos.i, rowIndex.i, elemW.i, xElem.i, rowGadget.i
     
     SetColors()
-    DPI_Scale = User_DPI_Scale
+    Local_DPI_Scale = User_DPI_Scale
     
     Protected fontName$
     CompilerSelect #PB_Compiler_OS
@@ -477,16 +520,16 @@ Module ModernList
       CompilerCase #PB_OS_MacOS
         fontName$ = "Helvetica"
     CompilerEndSelect
-    rowFont = LoadFont(#PB_Any, fontName$, 10 * DPI_Scale, #PB_Font_HighQuality)
-    headerFont = LoadFont(#PB_Any, fontName$, 10 * DPI_Scale, #PB_Font_Bold | #PB_Font_HighQuality)
+    rowFont = LoadFont(#PB_Any, fontName$, 10 * Local_DPI_Scale, #PB_Font_HighQuality)
+    headerFont = LoadFont(#PB_Any, fontName$, 10 * Local_DPI_Scale, #PB_Font_Bold | #PB_Font_HighQuality)
     
     *list\Window = window
-    *list\Width = Round(width * DPI_Scale, #PB_Round_Down)
-    *list\Height = Round(height * DPI_Scale, #PB_Round_Down)
-    *list\RowHeight = Round(defaultRowHeight * DPI_Scale, #PB_Round_Down)
+    *list\Width = Round(width * Local_DPI_Scale, #PB_Round_Down)
+    *list\Height = Round(height * Local_DPI_Scale, #PB_Round_Down)
+    *list\RowHeight = Round(defaultRowHeight * Local_DPI_Scale, #PB_Round_Down)
     *list\ActiveRowIndex = -1
     *list\HoveredRowIndex = -1
-    *list\DPI_Scale = DPI_Scale
+    *list\DPI_Scale = Local_DPI_Scale
     *list\ResizeCallback = *resizeProc
     
     NewList *list\Rows.ListRow()
@@ -512,7 +555,9 @@ Module ModernList
     Protected totalRowHeight.i = 0
     ForEach *list\Rows()
       Protected rowH.i = *list\Rows()\Height
-      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      If rowH = 0
+        rowH = *list\RowHeight
+      EndIf
       totalRowHeight + rowH
     Next
     *list\ScrollArea = ScrollAreaGadget(#PB_Any, 0, scrollY, *list\Width, scrollH, *list\Width, totalRowHeight, 0, #PB_ScrollArea_BorderLess)
@@ -527,8 +572,10 @@ Module ModernList
     rowIndex = 0
     Dim *list\rowGadgets(rowCount - 1)
     ForEach *list\Rows()
-       rowH.i = *list\Rows()\Height
-      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      rowH.i = *list\Rows()\Height
+      If rowH = 0
+        rowH = *list\RowHeight
+      EndIf
       
       rowGadget = CanvasGadget(#PB_Any, 0, yPos, *list\Width, rowH, #PB_Canvas_Container | #PB_Canvas_Keyboard)
       
@@ -580,7 +627,9 @@ Module ModernList
     Protected totalRowHeight.i = 0
     ForEach *list\Rows()
       Protected rowH.i = *list\Rows()\Height
-      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      If rowH = 0
+        rowH = *list\RowHeight
+      EndIf
       totalRowHeight + rowH
       yPos = totalRowHeight - rowH
     Next
@@ -629,7 +678,9 @@ Module ModernList
       Protected totalRowHeight.i = 0
       ForEach *list\Rows()
         Protected rowH.i = *list\Rows()\Height
-        If rowH = 0 : rowH = *list\RowHeight : EndIf
+        If rowH = 0
+          rowH = *list\RowHeight
+        EndIf
         totalRowHeight + rowH
         If ListIndex(*list\Rows()) = rowIndex
           yPos = totalRowHeight - rowH
@@ -716,8 +767,10 @@ Module ModernList
     
     Protected innerH.i = 0
     ForEach *list\Rows()
-      Protected rowH.i = *list\Rows()\Height
-      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      rowH.i = *list\Rows()\Height
+      If rowH = 0
+        rowH = *list\RowHeight
+      EndIf
       innerH + rowH
     Next
     SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerHeight, innerH)
@@ -727,7 +780,9 @@ Module ModernList
     Protected rowIndex.i = 0
     ForEach *list\Rows()
       rowH.i = *list\Rows()\Height
-      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      If rowH = 0
+        rowH = *list\RowHeight
+      EndIf
       If rowIndex < ArraySize(*list\rowGadgets())
         Protected rowGadget.i = *list\rowGadgets(rowIndex)
         If rowGadget And IsGadget(rowGadget)
@@ -744,50 +799,137 @@ Module ModernList
   EndProcedure
   
   Procedure Resize(*list.ModernListData, width.i, height.i, externalResize=#False)
-    *list\Width = Round(width * DPI_Scale, #PB_Round_Down)
-    *list\Height = Round(height * DPI_Scale, #PB_Round_Down)
+    *list\Width = Round(width * Local_DPI_Scale, #PB_Round_Down)
+    *list\Height = Round(height * Local_DPI_Scale, #PB_Round_Down)
     DoResize(*list, externalResize)
   EndProcedure
-
   
-  ; Procedure to check if the mouse is over a gadget (similar to IsMouseOverGadget)
-  Procedure.i IsMouseOverGadget(gadget.i, window.i)
-    Protected mx = WindowMouseX(window)
-    Protected my = WindowMouseY(window)
-    Protected gx = GadgetX(gadget, #PB_Gadget_WindowCoordinate)
-    Protected gy = GadgetY(gadget, #PB_Gadget_WindowCoordinate)
-    Protected gw = GadgetWidth(gadget)
-    Protected gh = GadgetHeight(gadget)
-    If mx >= gx And mx < gx + gw And my >= gy And my < gy + gh
+  ; FIXED: This procedure now properly accounts for ScrollArea offset and DPI scaling
+  Procedure.i IsMouseOverGadget(gadget.i, window.i, scrollAreaGadget.i, headerHeight.i)
+    If Not IsGadget(gadget)
+      ProcedureReturn #False
+    EndIf
+    
+    ; Get mouse position relative to window (already in DPI-scaled coordinates)
+    Protected mx.i = WindowMouseX(window)
+    Protected my.i = WindowMouseY(window)
+    
+    ; Get ScrollArea position in window coordinates
+    Protected scrollX.i = GadgetX(scrollAreaGadget, #PB_Gadget_WindowCoordinate)
+    Protected scrollY_Window.i = GadgetY(scrollAreaGadget, #PB_Gadget_WindowCoordinate)
+    Protected scrollW.i = GadgetWidth(scrollAreaGadget)
+    Protected scrollH.i = GadgetHeight(scrollAreaGadget)
+    
+    ; Get scroll offset
+    Protected scrollY_Offset.i = GetGadgetAttribute(scrollAreaGadget, #PB_ScrollArea_Y)
+    
+    ; Get gadget position relative to inner container (already in DPI-scaled coordinates)
+    Protected gx.i = GadgetX(gadget, #PB_Gadget_ContainerCoordinate)
+    Protected gy.i = GadgetY(gadget, #PB_Gadget_ContainerCoordinate)
+    Protected gw.i = GadgetWidth(gadget)
+    Protected gh.i = GadgetHeight(gadget)
+    
+    ; Calculate gadget position in window coordinates accounting for scroll
+    Protected gadgetX_Window.i = scrollX + gx
+    Protected gadgetY_Window.i = scrollY_Window + gy - scrollY_Offset
+    
+    ; Check if mouse is within gadget bounds
+    If mx >= gadgetX_Window And mx < gadgetX_Window + gw And my >= gadgetY_Window And my < gadgetY_Window + gh
       ProcedureReturn #True
     EndIf
     ProcedureReturn #False
   EndProcedure
   
+  Procedure UpdateHoverState(*list.ModernListData)
+    Protected mouseOverRow.i = -1
+    Protected foundHover.i = #False
+    
+    ; Check all row gadgets
+    For i = 0 To ArraySize(*list\rowGadgets())
+      If *list\rowGadgets(i) And IsGadget(*list\rowGadgets(i))
+        If IsMouseOverGadget(*list\rowGadgets(i), *list\Window, *list\ScrollArea, *list\HeaderHeight)
+          mouseOverRow = i
+          foundHover = #True
+          Break
+        EndIf
+      EndIf
+    Next
+    
+    ; If not over a row, check if over an element gadget
+    If Not foundHover
+      ForEach ModernListElement::ElementMap()
+        If ModernListElement::ElementMap()\Type = #Element_Gadget
+          If IsMouseOverGadget(ModernListElement::ElementMap()\Gadget, *list\Window, *list\ScrollArea, *list\HeaderHeight)
+            For i = 0 To ArraySize(*list\rowGadgets())
+              If *list\rowGadgets(i) = ModernListElement::ElementMap()\RowGadget
+                mouseOverRow = i
+                foundHover = #True
+                Break
+              EndIf
+            Next
+            If foundHover
+              Break
+            EndIf
+          EndIf
+        EndIf
+      Next
+    EndIf
+    
+    ; Update hover state if changed
+    If mouseOverRow <> *list\HoveredRowIndex
+      Protected oldHoverRow.i = *list\HoveredRowIndex
+      *list\HoveredRowIndex = mouseOverRow
+      
+      ; Redraw old hovered row
+      If oldHoverRow >= 0 And oldHoverRow <= ArraySize(*list\rowGadgets())
+        If *list\rowGadgets(oldHoverRow) And IsGadget(*list\rowGadgets(oldHoverRow))
+          Protected oldIsActive.i = #False
+          If oldHoverRow = *list\ActiveRowIndex
+            oldIsActive = #True
+          EndIf
+          DrawRow(*list, oldHoverRow, *list\rowGadgets(oldHoverRow), oldIsActive, #False)
+        EndIf
+      EndIf
+      
+      ; Redraw new hovered row
+      If mouseOverRow >= 0 And mouseOverRow <= ArraySize(*list\rowGadgets())
+        If *list\rowGadgets(mouseOverRow) And IsGadget(*list\rowGadgets(mouseOverRow))
+          Protected newIsActive.i = #False
+          If mouseOverRow = *list\ActiveRowIndex
+            newIsActive = #True
+          EndIf
+          DrawRow(*list, mouseOverRow, *list\rowGadgets(mouseOverRow), newIsActive, #True)
+        EndIf
+      EndIf
+    EndIf
+  EndProcedure
+  
   Procedure HandleListEvent(*list.ModernListData, eventGadget.i, event.i)
+    Debug "HandleListEvent"
     If eventGadget = *list\HeaderContainer
       If event = #PB_EventType_LeftClick
-        ; TODO: Sorting
       EndIf
       ProcedureReturn #True
     EndIf
     
     Protected rowIndex.i = -1
-    ; Check if eventGadget is a row canvas or a child container gadget
+    Protected foundRow.i = #False
+    
     For i = 0 To ArraySize(*list\rowGadgets())
       If *list\rowGadgets(i) = eventGadget
         rowIndex = GetGadgetData(eventGadget)
+        foundRow = #True
         Break
       EndIf
     Next
     
-    ; If not a row canvas, check if it's a container gadget and find parent row
-    If rowIndex = -1
+    If Not foundRow
       ForEach ModernListElement::ElementMap()
         If ModernListElement::ElementMap()\Gadget = eventGadget
           For i = 0 To ArraySize(*list\rowGadgets())
             If *list\rowGadgets(i) = ModernListElement::ElementMap()\RowGadget
               rowIndex = GetGadgetData(*list\rowGadgets(i))
+              foundRow = #True
               Break
             EndIf
           Next
@@ -799,82 +941,8 @@ Module ModernList
     If rowIndex >= 0 And rowIndex < ListSize(*list\Rows())
       Select event
         Case #PB_EventType_LeftClick
-          ; Select row if clicking on canvas or container gadget
           *list\ActiveRowIndex = rowIndex
           RedrawAll(*list)
-          
-        Case #PB_EventType_MouseEnter
-          *list\HoveredRowIndex = rowIndex
-          If rowIndex < ArraySize(*list\rowGadgets())
-            Protected rowGadget.i = *list\rowGadgets(rowIndex)
-            If rowGadget And IsGadget(rowGadget)
-              Protected isActive.i = #False
-              If rowIndex = *list\ActiveRowIndex
-                isActive = #True
-              EndIf
-              DrawRow(*list, rowIndex, rowGadget, isActive, #True)
-            EndIf
-          EndIf
-          
-        Case #PB_EventType_MouseLeave
-          *list\HoveredRowIndex = -1
-          If rowIndex < ArraySize(*list\rowGadgets())
-            rowGadget.i = *list\rowGadgets(rowIndex)
-            If rowGadget And IsGadget(rowGadget)
-              isActive.i = #False
-              If rowIndex = *list\ActiveRowIndex
-                isActive = #True
-              EndIf
-              DrawRow(*list, rowIndex, rowGadget, isActive, #False)
-            EndIf
-          EndIf
-          
-        Case #PB_EventType_MouseMove
-          ; Check hover state for all container gadgets in the row
-          Protected isHovered.i = #False
-          If eventGadget = *list\rowGadgets(rowIndex)
-            ; Mouse is over the row canvas
-            isHovered = #True
-          Else
-            ; Check if mouse is over any container gadget in the row
-            ForEach ModernListElement::ElementMap()
-              If ModernListElement::ElementMap()\RowGadget = *list\rowGadgets(rowIndex)
-                If ModernListElement::ElementMap()\Type = #Element_Gadget
-                  If IsMouseOverGadget(ModernListElement::ElementMap()\Gadget, *list\Window)
-                    isHovered = #True
-                    Break
-                  EndIf
-                EndIf
-              EndIf
-            Next
-          EndIf
-          
-          ; Update hover state
-          If isHovered And *list\HoveredRowIndex <> rowIndex
-            *list\HoveredRowIndex = rowIndex
-            If rowIndex < ArraySize(*list\rowGadgets())
-               rowGadget.i = *list\rowGadgets(rowIndex)
-              If rowGadget And IsGadget(rowGadget)
-                 isActive.i = #False
-                If rowIndex = *list\ActiveRowIndex
-                  isActive = #True
-                EndIf
-                DrawRow(*list, rowIndex, rowGadget, isActive, #True)
-              EndIf
-            EndIf
-          ElseIf Not isHovered And *list\HoveredRowIndex = rowIndex
-            *list\HoveredRowIndex = -1
-            If rowIndex < ArraySize(*list\rowGadgets())
-              rowGadget.i = *list\rowGadgets(rowIndex)
-              If rowGadget And IsGadget(rowGadget)
-                isActive.i = #False
-                If rowIndex = *list\ActiveRowIndex
-                  isActive = #True
-                EndIf
-                DrawRow(*list, rowIndex, rowGadget, isActive, #False)
-              EndIf
-            EndIf
-          EndIf
           
         Case #PB_EventType_MouseWheel
           Protected delta.i = GetGadgetAttribute(eventGadget, #PB_Canvas_WheelDelta)
@@ -895,7 +963,6 @@ Module ModernList
     ProcedureReturn *list\InnerContainer
   EndProcedure
 EndModule
-
 
 UseModule App
 UseModule ModernListElement
@@ -1014,146 +1081,33 @@ Procedure ListResizeCallback(*list.ModernListData, width.i, height.i)
   Debug "List resized to " + Str(width) + "x" + Str(height)
 EndProcedure
 
-Procedure MainX()
-  If OpenWindow(0, 0, 0, 600, 400, "ModernList Example", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
-    
-    Protected mockImage.i = CreateMockImage()
-    
-    Define header.ModernList::ListHeader
-    header\Height = 30
-    AddElement(header\Columns())
-    header\Columns()\Type = ModernListElement::#Element_Text
-    header\Columns()\Content = "ID"
-    header\Columns()\Width = 100
-    header\Columns()\Alignment = 1
-    AddElement(header\Columns())
-    header\Columns()\Type = ModernListElement::#Element_Text
-    header\Columns()\Content = "Name"
-    header\Columns()\Width = 200
-    AddElement(header\Columns())
-    header\Columns()\Type = ModernListElement::#Element_Text
-    header\Columns()\Content = "Action"
-    header\Columns()\Width = 150
-    
-    NewList rows.ListRow()
-    
-    AddElement(rows())
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "001"
-    rows()\Elements()\Width = 100
-    rows()\Elements()\Alignment = 1
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    rows()\Elements()\HoveredForeColor = RGB(0, 0, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Image
-    rows()\Elements()\Content = Str(mockImage)
-    rows()\Elements()\Width = 200
-    rows()\Elements()\Alignment = 1
-    rows()\Elements()\HoveredTintColor = RGBA(0, 0, 255, 50)
-    rows()\Elements()\SelectedTintColor = RGBA(255, 255, 255, 50)
-    rows()\Elements()\SelectedHoveredTintColor = RGBA(200, 200, 200, 50)
-    rows()\Height = 50
-    
-    AddElement(rows())
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "002"
-    rows()\Elements()\Width = 100
-    rows()\Elements()\Alignment = 1
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "Jane Doe"
-    rows()\Elements()\Width = 200
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Gadget
-    rows()\Elements()\Content = "Button Data"
-    rows()\Elements()\Interface = @ButtonInterface
-    rows()\Elements()\Width = 150
-    rows()\Height = 50
-    
-    AddElement(rows())
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Image
-    rows()\Elements()\Content = Str(mockImage)
-    rows()\Elements()\Width = 100
-    rows()\Elements()\Alignment = 1
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "Item 3"
-    rows()\Elements()\Width = 200
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Gadget
-    rows()\Elements()\Content = "Combo Data"
-    rows()\Elements()\Interface = @ComboInterface
-    rows()\Elements()\Width = 150
-    rows()\Height = 50
-    
-    AddElement(rows())
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "003"
-    rows()\Elements()\Width = 100
-    rows()\Elements()\Alignment = 1
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Gadget
-    rows()\Elements()\Content = "String Data"
-    rows()\Elements()\Interface = @StringInterface
-    rows()\Elements()\Width = 150
-    rows()\Height = 50
-    
-    Protected *list.ModernListData = ModernList::CreateList(0, 10, 10, 450, 150, rows(), @header, 40, 1.0, @ListResizeCallback())
-    
-    Repeat
-      Protected event.i = WaitWindowEvent()
-      Select event
-        Case #PB_Event_Gadget
-          If ModernList::HandleListEvent(*list, EventGadget(), EventType())
-            ; Handled by ModernList and ModernListElement
-          Else
-            Debug "Unhandled gadget event: Gadget=" + Str(EventGadget()) + ", Type=" + Str(EventType())
-          EndIf
-          
-        Case #PB_Event_CloseWindow
-          Break
-      EndSelect
-    ForEver
-    
-    FreeImage(mockImage)
-    FreeMemory(*list)
-    FreeFont(ModernList::rowFont)
-    FreeFont(ModernList::headerFont)
-  EndIf
-EndProcedure
-
 Procedure Main()
-  If OpenWindow(0, 0, 0, 600, 400, "ModernList Example", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+  Debug "Detected DPI Scale: " + StrF(DPI_Scale, 2)
+  
+  If OpenWindow(0, 0, 0, 600, 400, "ModernList Example - DPI: " + StrF(DPI_Scale * 100, 0) + "%", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
     Protected mockImage.i = CreateMockImage()
+    
     Define header.ModernList::ListHeader
     header\Height = 30
+    
     AddElement(header\Columns())
     header\Columns()\Type = ModernListElement::#Element_Text
     header\Columns()\Content = "ID"
     header\Columns()\Width = 100
     header\Columns()\Alignment = 1
+    
     AddElement(header\Columns())
     header\Columns()\Type = ModernListElement::#Element_Text
     header\Columns()\Content = "Name"
     header\Columns()\Width = 200
+    
     AddElement(header\Columns())
     header\Columns()\Type = ModernListElement::#Element_Text
     header\Columns()\Content = "Action"
     header\Columns()\Width = 150
+    
     NewList rows.ListRow()
+    
     AddElement(rows())
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Text
@@ -1163,6 +1117,7 @@ Procedure Main()
     rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
     rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
     rows()\Elements()\HoveredForeColor = RGB(0, 0, 255)
+    
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Image
     rows()\Elements()\Content = Str(mockImage)
@@ -1171,7 +1126,14 @@ Procedure Main()
     rows()\Elements()\HoveredTintColor = RGBA(0, 0, 255, 50)
     rows()\Elements()\SelectedTintColor = RGBA(255, 255, 255, 50)
     rows()\Elements()\SelectedHoveredTintColor = RGBA(200, 200, 200, 50)
+    
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = ModernListElement::#Element_Gadget
+    rows()\Elements()\Content = "Button 1"
+    rows()\Elements()\Interface = @ButtonInterface
+    rows()\Elements()\Width = 150
     rows()\Height = 50
+    
     AddElement(rows())
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Text
@@ -1180,36 +1142,42 @@ Procedure Main()
     rows()\Elements()\Alignment = 1
     rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
     rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
+    
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Text
     rows()\Elements()\Content = "Jane Doe"
     rows()\Elements()\Width = 200
     rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
     rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
+    
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Gadget
     rows()\Elements()\Content = "Button Data"
     rows()\Elements()\Interface = @ButtonInterface
     rows()\Elements()\Width = 150
     rows()\Height = 50
+    
     AddElement(rows())
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Image
     rows()\Elements()\Content = Str(mockImage)
     rows()\Elements()\Width = 100
     rows()\Elements()\Alignment = 1
+    
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Text
     rows()\Elements()\Content = "Item 3"
     rows()\Elements()\Width = 200
     rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
     rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
+    
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Gadget
     rows()\Elements()\Content = "Combo Data"
     rows()\Elements()\Interface = @ComboInterface
     rows()\Elements()\Width = 150
     rows()\Height = 50
+    
     AddElement(rows())
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Text
@@ -1218,52 +1186,58 @@ Procedure Main()
     rows()\Elements()\Alignment = 1
     rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
     rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
+    
     AddElement(rows()\Elements())
     rows()\Elements()\Type = ModernListElement::#Element_Gadget
     rows()\Elements()\Content = "String Data"
     rows()\Elements()\Interface = @StringInterface
-    rows()\Elements()\Width = 150
-    rows()\Height = 50
-    AddElement(rows())
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "004"
-    rows()\Elements()\Width = 100
-    rows()\Elements()\Alignment = 1
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Text
-    rows()\Elements()\Content = "Extra Row"
     rows()\Elements()\Width = 200
-    rows()\Elements()\SelectedForeColor = RGB(255, 255, 255)
-    rows()\Elements()\SelectedHoveredForeColor = RGB(255, 255, 255)
-    AddElement(rows()\Elements())
-    rows()\Elements()\Type = ModernListElement::#Element_Gadget
-    rows()\Elements()\Content = "Button Extra"
-    rows()\Elements()\Interface = @ButtonInterface
-    rows()\Elements()\Width = 150
     rows()\Height = 50
+    
     For i = 5 To 15
       AddElement(rows())
+      
       AddElement(rows()\Elements())
       rows()\Elements()\Type = ModernListElement::#Element_Text
-      rows()\Elements()\Content = Str(i)
+      rows()\Elements()\Content = RSet(Str(i), 3, "0")
       rows()\Elements()\Width = 100
       rows()\Elements()\Alignment = 1
+      
       AddElement(rows()\Elements())
       rows()\Elements()\Type = ModernListElement::#Element_Text
       rows()\Elements()\Content = "Row " + Str(i)
       rows()\Elements()\Width = 200
+      
       AddElement(rows()\Elements())
-      rows()\Elements()\Type = ModernListElement::#Element_Text
-      rows()\Elements()\Content = "No gadget"
+      If i % 3 = 0
+        rows()\Elements()\Type = ModernListElement::#Element_Gadget
+        rows()\Elements()\Content = "Button " + Str(i)
+        rows()\Elements()\Interface = @ButtonInterface
+      Else
+        rows()\Elements()\Type = ModernListElement::#Element_Text
+        rows()\Elements()\Content = "No gadget"
+      EndIf
       rows()\Elements()\Width = 150
       rows()\Height = 50
     Next
-    Protected *list.ModernListData = ModernList::CreateList(0, 0, 0, 600, 400, rows(), @header, 40, 1.0, @ListResizeCallback())
+    
+    Protected *list.ModernListData = ModernList::CreateList(0, 0, 0, 600, 400, rows(), @header, 40, DPI_Scale, @ListResizeCallback())
+    
+    Protected lastMouseX.i = -1
+    Protected lastMouseY.i = -1
+    
     Repeat
-      Protected event.i = WaitWindowEvent()
+      Protected event.i = WaitWindowEvent(10)
+      
+      Protected currentMouseX.i = WindowMouseX(0)
+      Protected currentMouseY.i = WindowMouseY(0)
+      
+      If currentMouseX <> lastMouseX Or currentMouseY <> lastMouseY
+        ModernList::UpdateHoverState(*list)
+        lastMouseX = currentMouseX
+        lastMouseY = currentMouseY
+      EndIf
+      
       Select event
         Case #PB_Event_Gadget
           If ModernList::HandleListEvent(*list, EventGadget(), EventType())
@@ -1275,15 +1249,17 @@ Procedure Main()
           Break
       EndSelect
     ForEver
+    
     FreeImage(mockImage)
     FreeMemory(*list)
     FreeFont(rowFont)
     FreeFont(headerFont)
   EndIf
 EndProcedure
+
 Main()
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 888
-; FirstLine = 875
+; CursorPosition = 96
+; FirstLine = 86
 ; Folding = ------
 ; EnableXP
