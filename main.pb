@@ -2148,7 +2148,7 @@ Module VerticalTabBar
     
     ; Check hamburger button
     If eventGadget = *tabBar\HamburgerGadget
-      If EventType() = #PB_EventType_LeftClick
+      If EventType() = #PB_EventType_LeftClick Or EventType() = #PB_EventType_LeftDoubleClick
         Toggle(*tabBar)
       ElseIf EventType() = #PB_EventType_MouseEnter
         *tabBar\HamburgerHovered = #True
@@ -4128,10 +4128,9 @@ Execute::StartApp()
 
 WindowManager::CleanupManagedWindows()
 App::CleanupApp() 
-
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2526
-; FirstLine = 2515
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 2150
+; FirstLine = 2136
 ; Folding = ----------------------------------
 ; Optimizer
 ; EnableThread
