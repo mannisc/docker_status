@@ -1,0 +1,750 @@
+﻿DeclareModule App
+  Global IsDarkModeActiveCached = #False
+  Global darkThemeBackgroundColor = RGB(30,30,30)
+  Global darkThemeForegroundColor = RGB(255, 255, 255)
+  Global lightThemeBackgroundColor = RGB(250,250,250)
+  Global lightThemeForegroundColor = RGB(0,0,0)
+EndDeclareModule
+
+Module App
+EndModule
+
+DeclareModule ModernList
+  UseModule App
+  
+  Enumeration ElementTypes
+    #Element_Text
+    #Element_Image
+    #Element_Gadget
+  EndEnumeration
+  
+  Structure ListElement
+    Type.i      ; One of ElementTypes
+    Content.s   ; Text string, image ID, or procedure name (for gadgets)
+    Width.i     ; Fixed width in pixels (DPI-scaled)
+    Alignment.i ; 0: left, 1: center, 2: right
+    ForeColor.i ; Optional custom foreground color
+    BackColor.i ; Optional custom background color
+    *ProcPtr    ; Procedure pointer for #Element_Gadget (set internally)
+  EndStructure
+  
+  Structure ListRow
+    List Elements.ListElement()  ; List of elements
+    Height.i                    ; Custom row height (0 = default)
+    UserData.i                  ; For sorting/filtering
+  EndStructure
+  
+  Structure ListHeader
+    List Columns.ListElement()  ; Header columns
+    Height.i                   ; Header height
+  EndStructure
+  
+  #PB_Event_RedrawRow = #PB_Event_FirstCustomValue + 1
+  
+  Structure ModernListData
+    Window.i
+    MainContainer.i
+    HeaderContainer.i
+    ScrollArea.i
+    InnerContainer.i
+    HeaderHeight.i
+    RowHeight.i          ; Default row height
+    List Rows.ListRow()
+    Header.ListHeader
+    ActiveRowIndex.i     ; Selected row
+    HoveredRowIndex.i    ; Hovered row
+    Width.i
+    Height.i
+    InnerWidth.i
+    InnerHeight.i
+    *ResizeCallback
+    AnimationRunning.i   ; For future animations
+    DPI_Scale.f
+    Array rowGadgets.i(0) ; Store row gadgets
+    Array isContainer.i(0) ; 1 if row is ContainerGadget, 0 if CanvasGadget
+  EndStructure
+  
+  ; Public globals for fonts
+  Global rowFont
+  Global headerFont
+  
+  Declare SetColors()
+  Declare Refresh(*list.ModernListData)
+  Declare DrawHeader(*list.ModernListData)
+  Declare DrawRow(*list.ModernListData, rowIndex.i, gadget.i, active.i, hovered.i)
+  Declare RedrawAll(*list.ModernListData)
+  Declare.i Create(window.i, x.i, y.i, width.i, height.i, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=40, User_DPI_Scale.f=1, *resizeProc=0)
+  Declare AddRow(*list.ModernListData, List elements.ListElement(), height.i=0, userData.i=0)
+  Declare SetRow(*list.ModernListData, rowIndex.i, List elements.ListElement(), height.i=0, userData.i=0)
+  Declare ClearRows(*list.ModernListData)
+  Declare DoResize(*list.ModernListData, externalResize=#False)
+  Declare Resize(*list.ModernListData, width.i, height.i, externalResize=#False)
+  Declare HandleListEvent(*list.ModernListData, eventGadget.i, event.i)
+  Declare GetSelectedRow(*list.ModernListData)
+  Declare GetInnerContainer(*list.ModernListData)
+EndDeclareModule
+
+Module ModernList
+  UseModule App
+  
+  Global COLOR_EDITOR_BG = RGB(0, 0, 0)
+  Global COLOR_EDITOR_TEXT = RGB(212, 212, 212)
+  Global PatternColor = RGB(255, 0, 0)
+  Global DPI_Scale.f = 1
+  Global menuFontSize.f = 7
+  Global menuFont
+  Global colorAccent
+  Global colorHover
+  Global colorSideBar
+  Global inactiveForegroundColor
+  Global rowFont
+  Global headerFont
+  
+  Procedure SetColors()
+    If IsDarkModeActiveCached
+      colorHover = RGB(70, 70, 70)
+      colorSideBar = RGB(51, 51, 51)
+      colorAccent = RGB(0, 122, 204)
+      inactiveForegroundColor = RGB(220,220,220)
+    Else
+      colorHover = RGB(230, 230, 230)
+      colorSideBar = RGB(240, 240, 240)
+      colorAccent = RGB(0, 122, 204)
+      inactiveForegroundColor = RGB(55,55,55)
+    EndIf
+  EndProcedure
+  
+  Procedure Refresh(*list.ModernListData)
+    RedrawWindow_(GadgetID(*list\MainContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW)
+    RedrawWindow_(GadgetID(*list\InnerContainer), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_ALLCHILDREN | #RDW_UPDATENOW)
+    InvalidateRect_(GadgetID(*list\MainContainer), #Null, #False)
+    UpdateWindow_(GadgetID(*list\MainContainer))
+  EndProcedure
+  
+  Procedure DrawHeader(*list.ModernListData)
+    If *list\HeaderContainer
+      If StartDrawing(CanvasOutput(*list\HeaderContainer))
+        SetColors()
+        Box(0, 0, OutputWidth(), OutputHeight(), colorSideBar)
+        
+        xPos.i = 0
+        DrawingMode(#PB_2DDrawing_Transparent)
+        DrawingFont(FontID(headerFont))
+        
+        ForEach *list\Header\Columns()
+          colWidth = *list\Header\Columns()\Width
+          Select *list\Header\Columns()\Type
+            Case #Element_Text
+              text$ = *list\Header\Columns()\Content
+              foreColor = *list\Header\Columns()\ForeColor
+              If foreColor = 0 : foreColor = inactiveForegroundColor : EndIf
+              yPos = (OutputHeight() - TextHeight(text$)) / 2
+              DrawText(xPos + 5 * DPI_Scale, yPos, text$, foreColor)
+            Case #Element_Image
+              If Val(*list\Header\Columns()\Content) > 0
+                imgID = Val(*list\Header\Columns()\Content)
+                DrawImage(ImageID(imgID), xPos + (colWidth - ImageWidth(imgID)) / 2, (OutputHeight() - ImageHeight(imgID)) / 2)
+              EndIf
+          EndSelect
+          xPos + colWidth
+        Next
+        
+        StopDrawing()
+      EndIf
+    EndIf
+  EndProcedure
+  
+  Procedure DrawRow(*list.ModernListData, rowIndex.i, gadget.i, active.i, hovered.i)
+    ; Only draw for CanvasGadget rows, not ContainerGadget rows
+    If *list\isContainer(rowIndex) = 0 And gadget And IsGadget(gadget)
+      If StartDrawing(CanvasOutput(gadget))
+        canvasW = OutputWidth()
+        canvasH = OutputHeight()
+        
+        SetColors()
+        If active
+          Box(0, 0, canvasW, canvasH, colorAccent)
+        ElseIf hovered
+          Box(0, 0, canvasW, canvasH, colorHover)
+        Else
+          If IsDarkModeActiveCached
+            Box(0, 0, canvasW, canvasH, darkThemeBackgroundColor)
+          Else
+            Box(0, 0, canvasW, canvasH, lightThemeBackgroundColor)
+          EndIf
+        EndIf
+        
+        SelectElement(*list\Rows(), rowIndex)
+        xPos.i = 0
+        DrawingMode(#PB_2DDrawing_Transparent)
+        DrawingFont(FontID(rowFont))
+        
+        ForEach *list\Rows()\Elements()
+          elemWidth = *list\Rows()\Elements()\Width
+          backColor = *list\Rows()\Elements()\BackColor
+          If backColor
+            Box(xPos, 0, elemWidth, canvasH, backColor)
+          EndIf
+          
+          Select *list\Rows()\Elements()\Type
+            Case #Element_Text
+              text$ = *list\Rows()\Elements()\Content
+              foreColor = *list\Rows()\Elements()\ForeColor
+              If foreColor = 0
+                If IsDarkModeActiveCached
+                  foreColor = darkThemeForegroundColor
+                Else
+                  foreColor = lightThemeForegroundColor
+                EndIf
+              EndIf
+              textW = TextWidth(text$)
+              textH = TextHeight(text$)
+              yPos = (canvasH - textH) / 2
+              Select *list\Rows()\Elements()\Alignment
+                Case 1 : xAlign = (elemWidth - textW) / 2
+                Case 2 : xAlign = elemWidth - textW - 5 * DPI_Scale
+                Default: xAlign = 5 * DPI_Scale
+              EndSelect
+              DrawText(xPos + xAlign, yPos, text$, foreColor)
+              
+            Case #Element_Image
+              If Val(*list\Rows()\Elements()\Content) > 0
+                imgID = Val(*list\Rows()\Elements()\Content)
+                imgW = ImageWidth(imgID)
+                imgH = ImageHeight(imgID)
+                DrawingMode(#PB_2DDrawing_AlphaBlend)
+                Select *list\Rows()\Elements()\Alignment
+                  Case 1 : xAlign = (elemWidth - imgW) / 2
+                  Case 2 : xAlign = elemWidth - imgW - 5 * DPI_Scale
+                  Default: xAlign = 5 * DPI_Scale
+                EndSelect
+                yAlign = (canvasH - imgH) / 2
+                DrawImage(ImageID(imgID), xPos + xAlign, yAlign)
+              EndIf
+              
+            Case #Element_Gadget
+              ; Handled in container
+          EndSelect
+          
+          xPos + elemWidth
+        Next
+        
+        StopDrawing()
+      EndIf
+    EndIf
+  EndProcedure
+  
+  Procedure RedrawAll(*list.ModernListData)
+    SetColors()
+    DrawHeader(*list)
+    
+    yPos.i = 0
+    rowIndex.i = 0
+    ForEach *list\Rows()
+      rowH = *list\Rows()\Height
+      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      If rowIndex < ArraySize(*list\rowGadgets())
+        rowGadget = *list\rowGadgets(rowIndex)
+        If rowGadget And IsGadget(rowGadget) And *list\isContainer(rowIndex) = 0
+          isActive.i = #False
+          isHovered.i = #False
+          If rowIndex = *list\ActiveRowIndex
+            isActive = #True
+          EndIf
+          If rowIndex = *list\HoveredRowIndex
+            isHovered = #True
+          EndIf
+          DrawRow(*list, rowIndex, rowGadget, isActive, isHovered)
+        EndIf
+      EndIf
+      yPos + rowH
+      rowIndex + 1
+    Next
+    
+    Refresh(*list)
+  EndProcedure
+  
+  Procedure.i Create(window.i, x.i, y.i, width.i, height.i, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=40, User_DPI_Scale.f=1, *resizeProc=0)
+    Protected *list.ModernListData = AllocateMemory(SizeOf(ModernListData))
+    Protected rowCount.i, yPos.i, rowIndex.i
+    
+    SetColors()
+    DPI_Scale = User_DPI_Scale
+    
+    CompilerSelect #PB_Compiler_OS
+      CompilerCase #PB_OS_Windows
+        fontName$ = "Segoe UI"
+      CompilerCase #PB_OS_Linux
+        fontName$ = "Sans"
+      CompilerCase #PB_OS_MacOS
+        fontName$ = "Helvetica"
+    CompilerEndSelect
+    rowFont = LoadFont(#PB_Any, fontName$, 10 * DPI_Scale, #PB_Font_HighQuality)
+    headerFont = LoadFont(#PB_Any, fontName$, 10 * DPI_Scale, #PB_Font_Bold | #PB_Font_HighQuality)
+    
+    *list\Window = window
+    *list\Width = Round(width * DPI_Scale, #PB_Round_Down)
+    *list\Height = Round(height * DPI_Scale, #PB_Round_Down)
+    *list\RowHeight = Round(defaultRowHeight * DPI_Scale, #PB_Round_Down)
+    *list\ActiveRowIndex = -1
+    *list\HoveredRowIndex = -1
+    *list\DPI_Scale = DPI_Scale
+    *list\ResizeCallback = *resizeProc
+    
+    ; Initialize the Rows list in the structure
+    NewList *list\Rows.ListRow()
+    rowCount = ListSize(rows())
+    CopyList(rows(), *list\Rows())
+    
+    If *header
+      CopyStructure(*header, @*list\Header, ListHeader)
+      *list\HeaderHeight = *header\Height
+      If *list\HeaderHeight = 0 : *list\HeaderHeight = *list\RowHeight : EndIf
+    Else
+      *list\HeaderHeight = 0
+    EndIf
+    
+    *list\MainContainer = ContainerGadget(#PB_Any, x, y, *list\Width, *list\Height, #PB_Container_BorderLess)
+    
+    If *list\HeaderHeight > 0
+      *list\HeaderContainer = CanvasGadget(#PB_Any, 0, 0, *list\Width, *list\HeaderHeight)
+    EndIf
+    
+    scrollY = *list\HeaderHeight
+    scrollH = *list\Height - *list\HeaderHeight
+    *list\ScrollArea = ScrollAreaGadget(#PB_Any, 0, scrollY, *list\Width, scrollH, *list\Width, rowCount * *list\RowHeight, 0, #PB_ScrollArea_BorderLess)
+    *list\InnerContainer = ContainerGadget(#PB_Any, 0, 0, *list\Width, rowCount * *list\RowHeight, #PB_Container_BorderLess)
+    If IsDarkModeActiveCached
+      SetGadgetColor(*list\InnerContainer, #PB_Gadget_BackColor, darkThemeBackgroundColor)
+    Else
+      SetGadgetColor(*list\InnerContainer, #PB_Gadget_BackColor, lightThemeBackgroundColor)
+    EndIf
+    
+    yPos = 0
+    rowIndex = 0
+    Dim *list\rowGadgets(rowCount - 1)
+    Dim *list\isContainer(rowCount - 1)
+    ForEach *list\Rows()
+      rowH = *list\Rows()\Height
+      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      
+      hasGadget = #False
+      ForEach *list\Rows()\Elements()
+        If *list\Rows()\Elements()\Type = #Element_Gadget
+          hasGadget = #True
+          Break
+        EndIf
+      Next
+      
+      If hasGadget
+        rowGadget = ContainerGadget(#PB_Any, 0, yPos, *list\Width, rowH, #PB_Container_Flat)
+        *list\isContainer(rowIndex) = 1
+        xElem = 0
+        ForEach *list\Rows()\Elements()
+          elemW = *list\Rows()\Elements()\Width
+          Select *list\Rows()\Elements()\Type
+            Case #Element_Text
+              TextGadget(#PB_Any, xElem, 0, elemW, rowH, *list\Rows()\Elements()\Content, #PB_Text_Center)
+            Case #Element_Image
+              ImageGadget(#PB_Any, xElem, 0, elemW, rowH, Val(*list\Rows()\Elements()\Content), #PB_Image_Border)
+            Case #Element_Gadget
+              proc = GetFunction(0, *list\Rows()\Elements()\Content)
+              If proc
+                CallFunctionFast(proc, rowGadget, xElem, 0, elemW, rowH)
+              EndIf
+          EndSelect
+          xElem + elemW
+        Next
+        CloseGadgetList()
+      Else
+        rowGadget = CanvasGadget(#PB_Any, 0, yPos, *list\Width, rowH)
+        *list\isContainer(rowIndex) = 0
+      EndIf
+      
+      *list\rowGadgets(rowIndex) = rowGadget
+      SetGadgetData(rowGadget, rowIndex)
+      
+      yPos + rowH
+      rowIndex + 1
+    Next
+    
+    CloseGadgetList()
+    CloseGadgetList()
+    CloseGadgetList()
+    
+    Protected hMain = GadgetID(*list\MainContainer)
+    SetWindowLongPtr_(hMain, #GWL_STYLE, GetWindowLongPtr_(hMain, #GWL_STYLE) | #WS_CLIPCHILDREN)
+    
+    Protected hScroll = GadgetID(*list\ScrollArea)
+    SetWindowLongPtr_(hScroll, #GWL_STYLE, GetWindowLongPtr_(hScroll, #GWL_STYLE) | #WS_CLIPCHILDREN)
+    
+    Protected hInner = GadgetID(*list\InnerContainer)
+    SetWindowLongPtr_(hInner, #GWL_STYLE, GetWindowLongPtr_(hInner, #GWL_STYLE) | #WS_CLIPCHILDREN)
+    
+    RedrawAll(*list)
+    
+    ProcedureReturn *list
+  EndProcedure
+  
+  Procedure AddRow(*list.ModernListData, List elements.ListElement(), height.i=0, userData.i=0)
+    LastElement(*list\Rows())
+    AddElement(*list\Rows())
+    CopyList(elements(), *list\Rows()\Elements())
+    *list\Rows()\Height = height
+    *list\Rows()\UserData = userData
+    
+    yPos.i = 0
+    ForEach *list\Rows()
+      rowH = *list\Rows()\Height
+      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      yPos + rowH
+    Next
+    
+    rowIndex = ListSize(*list\Rows()) - 1
+    ReDim *list\rowGadgets(ArraySize(*list\rowGadgets()) + 1)
+    ReDim *list\isContainer(ArraySize(*list\isContainer()) + 1)
+    
+    hasGadget = #False
+    ForEach elements()
+      If elements()\Type = #Element_Gadget
+        hasGadget = #True
+        Break
+      EndIf
+    Next
+    
+    If hasGadget
+      rowGadget = ContainerGadget(#PB_Any, 0, yPos - *list\RowHeight, *list\Width, *list\RowHeight, #PB_Container_Flat)
+      *list\isContainer(rowIndex) = 1
+      xElem = 0
+      ForEach elements()
+        elemW = elements()\Width
+        Select elements()\Type
+          Case #Element_Text
+            TextGadget(#PB_Any, xElem, 0, elemW, *list\RowHeight, elements()\Content, #PB_Text_Center)
+          Case #Element_Image
+            ImageGadget(#PB_Any, xElem, 0, elemW, *list\RowHeight, Val(elements()\Content), #PB_Image_Border)
+          Case #Element_Gadget
+            proc = GetFunction(0, elements()\Content)
+            If proc
+              CallFunctionFast(proc, rowGadget, xElem, 0, elemW, *list\RowHeight)
+            EndIf
+        EndSelect
+        xElem + elemW
+      Next
+      CloseGadgetList()
+    Else
+      rowGadget = CanvasGadget(#PB_Any, 0, yPos - *list\RowHeight, *list\Width, *list\RowHeight)
+      *list\isContainer(rowIndex) = 0
+    EndIf
+    
+    *list\rowGadgets(rowIndex) = rowGadget
+    SetGadgetData(rowGadget, rowIndex)
+    RedrawAll(*list)
+  EndProcedure
+  
+  Procedure SetRow(*list.ModernListData, rowIndex.i, List elements.ListElement(), height.i=0, userData.i=0)
+    If SelectElement(*list\Rows(), rowIndex)
+      ClearList(*list\Rows()\Elements())
+      CopyList(elements(), *list\Rows()\Elements())
+      *list\Rows()\Height = height
+      *list\Rows()\UserData = userData
+      
+      If rowIndex < ArraySize(*list\rowGadgets())
+        If *list\rowGadgets(rowIndex) And IsGadget(*list\rowGadgets(rowIndex))
+          FreeGadget(*list\rowGadgets(rowIndex))
+        EndIf
+      EndIf
+      
+      hasGadget = #False
+      ForEach elements()
+        If elements()\Type = #Element_Gadget
+          hasGadget = #True
+          Break
+        EndIf
+      Next
+      
+      yPos.i = 0
+      ForEach *list\Rows()
+        rowH = *list\Rows()\Height
+        If rowH = 0 : rowH = *list\RowHeight : EndIf
+        If ListIndex(*list\Rows()) = rowIndex
+          Break
+        EndIf
+        yPos + rowH
+      Next
+      
+      If hasGadget
+        rowGadget = ContainerGadget(#PB_Any, 0, yPos, *list\Width, *list\RowHeight, #PB_Container_Flat)
+        *list\isContainer(rowIndex) = 1
+        xElem = 0
+        ForEach elements()
+          elemW = elements()\Width
+          Select elements()\Type
+            Case #Element_Text
+              TextGadget(#PB_Any, xElem, 0, elemW, *list\RowHeight, elements()\Content, #PB_Text_Center)
+            Case #Element_Image
+              ImageGadget(#PB_Any, xElem, 0, elemW, *list\RowHeight, Val(elements()\Content), #PB_Image_Border)
+            Case #Element_Gadget
+              proc = GetFunction(0, elements()\Content)
+              If proc
+                CallFunctionFast(proc, rowGadget, xElem, 0, elemW, *list\RowHeight)
+              EndIf
+          EndSelect
+          xElem + elemW
+        Next
+        CloseGadgetList()
+      Else
+        rowGadget = CanvasGadget(#PB_Any, 0, yPos, *list\Width, *list\RowHeight)
+        *list\isContainer(rowIndex) = 0
+      EndIf
+      
+      *list\rowGadgets(rowIndex) = rowGadget
+      SetGadgetData(rowGadget, rowIndex)
+      RedrawAll(*list)
+    EndIf
+  EndProcedure
+  
+  Procedure ClearRows(*list.ModernListData)
+    ClearList(*list\Rows())
+    For i = 0 To ArraySize(*list\rowGadgets())
+      If *list\rowGadgets(i) And IsGadget(*list\rowGadgets(i))
+        FreeGadget(*list\rowGadgets(i))
+      EndIf
+    Next
+    ReDim *list\rowGadgets(0)
+    ReDim *list\isContainer(0)
+    FreeGadget(*list\InnerContainer)
+    *list\InnerContainer = ContainerGadget(#PB_Any, 0, 0, *list\Width, *list\RowHeight, #PB_Container_BorderLess)
+    If IsDarkModeActiveCached
+      SetGadgetColor(*list\InnerContainer, #PB_Gadget_BackColor, darkThemeBackgroundColor)
+    Else
+      SetGadgetColor(*list\InnerContainer, #PB_Gadget_BackColor, lightThemeBackgroundColor)
+    EndIf
+    CloseGadgetList()
+    RedrawAll(*list)
+  EndProcedure
+  
+  Procedure DoResize(*list.ModernListData, externalResize=#False)
+    newWidth = *list\Width
+    newHeight = *list\Height
+    
+    If *list\ResizeCallback
+      CallFunctionFast(*list\ResizeCallback, *list, newWidth, newHeight)
+    EndIf
+    
+    ResizeGadget(*list\MainContainer, #PB_Ignore, #PB_Ignore, newWidth, newHeight)
+    If *list\HeaderContainer
+      ResizeGadget(*list\HeaderContainer, #PB_Ignore, #PB_Ignore, newWidth, *list\HeaderHeight)
+    EndIf
+    ResizeGadget(*list\ScrollArea, #PB_Ignore, *list\HeaderHeight, newWidth, newHeight - *list\HeaderHeight)
+    
+    innerH = 0
+    ForEach *list\Rows()
+      rowH = *list\Rows()\Height
+      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      innerH + rowH
+    Next
+    SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerHeight, innerH)
+    ResizeGadget(*list\InnerContainer, #PB_Ignore, #PB_Ignore, newWidth, innerH)
+    
+    yPos = 0
+    rowIndex = 0
+    ForEach *list\Rows()
+      rowH = *list\Rows()\Height
+      If rowH = 0 : rowH = *list\RowHeight : EndIf
+      If rowIndex < ArraySize(*list\rowGadgets())
+        rowGadget = *list\rowGadgets(rowIndex)
+        If rowGadget And IsGadget(rowGadget)
+          ResizeGadget(rowGadget, #PB_Ignore, yPos, newWidth, rowH)
+        EndIf
+      EndIf
+      yPos + rowH
+      rowIndex + 1
+    Next
+    
+    If Not externalResize
+      Refresh(*list)
+    EndIf
+  EndProcedure
+  
+  Procedure Resize(*list.ModernListData, width.i, height.i, externalResize=#False)
+    *list\Width = Round(width * DPI_Scale, #PB_Round_Down)
+    *list\Height = Round(height * DPI_Scale, #PB_Round_Down)
+    DoResize(*list, externalResize)
+  EndProcedure
+  
+  Procedure HandleListEvent(*list.ModernListData, eventGadget.i, event.i)
+    If eventGadget = *list\HeaderContainer
+      If EventType() = #PB_EventType_LeftClick
+        ; TODO: Sorting
+      EndIf
+      ProcedureReturn #True
+    EndIf
+    
+    rowIndex = GetGadgetData(eventGadget)
+    If rowIndex >= 0 And rowIndex < ListSize(*list\Rows())
+      If EventType() = #PB_EventType_LeftClick
+        *list\ActiveRowIndex = rowIndex
+        RedrawAll(*list)
+      ElseIf EventType() = #PB_EventType_MouseEnter
+        *list\HoveredRowIndex = rowIndex
+        If rowIndex < ArraySize(*list\rowGadgets())
+          rowGadget = *list\rowGadgets(rowIndex)
+          If rowGadget And IsGadget(rowGadget) And *list\isContainer(rowIndex) = 0
+            isActive.i = #False
+            If rowIndex = *list\ActiveRowIndex
+              isActive = #True
+            EndIf
+            DrawRow(*list, rowIndex, rowGadget, isActive, #True)
+          EndIf
+        EndIf
+      ElseIf EventType() = #PB_EventType_MouseLeave
+        *list\HoveredRowIndex = -1
+        If rowIndex < ArraySize(*list\rowGadgets())
+          rowGadget = *list\rowGadgets(rowIndex)
+          If rowGadget And IsGadget(rowGadget) And *list\isContainer(rowIndex) = 0
+            isActive.i = #False
+            If rowIndex = *list\ActiveRowIndex
+              isActive = #True
+            EndIf
+            DrawRow(*list, rowIndex, rowGadget, isActive, #False)
+          EndIf
+        EndIf
+      EndIf
+      ProcedureReturn #True
+    EndIf
+    
+    ProcedureReturn #False
+  EndProcedure
+  
+  Procedure GetSelectedRow(*list.ModernListData)
+    ProcedureReturn *list\ActiveRowIndex
+  EndProcedure
+  
+  Procedure GetInnerContainer(*list.ModernListData)
+    ProcedureReturn *list\InnerContainer
+  EndProcedure
+EndModule
+
+; Sample usage of ModernList module with mock image
+EnableExplicit
+
+UseModule App
+UseModule ModernList
+
+Procedure CreateButtonGadget(parentGadget.i, x.i, y.i, width.i, height.i)
+  ButtonGadget(#PB_Any, x, y, width, height, "Click Me")
+EndProcedure
+
+Procedure.i CreateMockImage()
+  Define img = CreateImage(#PB_Any, 32, 32, 32)
+  If StartDrawing(ImageOutput(img))
+    Box(0, 0, 32, 32, RGB(255, 0, 0)) ; Red background
+    LineXY(0, 0, 32, 32, RGB(255, 255, 255)) ; White diagonal line
+    LineXY(0, 32, 32, 0, RGB(255, 255, 255)) ; White diagonal line (cross)
+    StopDrawing()
+  EndIf
+  ProcedureReturn img
+EndProcedure
+
+Procedure ListResizeCallback(*list.ModernListData, width.i, height.i)
+  Debug "List resized to " + Str(width) + "x" + Str(height)
+EndProcedure
+
+Procedure Main()
+  If OpenWindow(0, 0, 0, 600, 400, "ModernList Example", #PB_Window_SystemMenu | #PB_Window_ScreenCentered)
+    
+    Define mockImage = CreateMockImage()
+    
+    Define header.ModernList::ListHeader
+    header\Height = 30
+    AddElement(header\Columns())
+    header\Columns()\Type = #Element_Text
+    header\Columns()\Content = "ID"
+    header\Columns()\Width = 100
+    header\Columns()\Alignment = 1 ; Center
+    AddElement(header\Columns())
+    header\Columns()\Type = #Element_Text
+    header\Columns()\Content = "Name"
+    header\Columns()\Width = 200
+    AddElement(header\Columns())
+    header\Columns()\Type = #Element_Text
+    header\Columns()\Content = "Action"
+    header\Columns()\Width = 150
+    
+    NewList rows.ListRow()
+    
+    AddElement(rows())
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Text
+    rows()\Elements()\Content = "001"
+    rows()\Elements()\Width = 100
+    rows()\Elements()\Alignment = 1
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Image
+    rows()\Elements()\Content = Str(mockImage)
+    rows()\Elements()\Width = 200
+    rows()\Elements()\Alignment = 1
+    rows()\Height = 50
+    
+    AddElement(rows())
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Text
+    rows()\Elements()\Content = "002"
+    rows()\Elements()\Width = 100
+    rows()\Elements()\Alignment = 1
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Text
+    rows()\Elements()\Content = "Jane Doe"
+    rows()\Elements()\Width = 200
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Gadget
+    rows()\Elements()\Content = "CreateButtonGadget"
+    rows()\Elements()\Width = 150
+    rows()\Height = 50
+    
+    AddElement(rows())
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Image
+    rows()\Elements()\Content = Str(mockImage)
+    rows()\Elements()\Width = 100
+    rows()\Elements()\Alignment = 1
+    AddElement(rows()\Elements())
+    rows()\Elements()\Type = #Element_Text
+    rows()\Elements()\Content = "Item 3"
+    rows()\Elements()\Width = 350
+    rows()\Height = 50
+    
+    Define *list.ModernListData = ModernList::Create(0, 10, 10, 450, 300, rows(), @header, 40, 1.0, @ListResizeCallback())
+    
+    Repeat
+      Define event = WaitWindowEvent()
+      Select event
+        Case #PB_Event_Gadget
+          If ModernList::HandleListEvent(*list, EventGadget(), event)
+            ; Handled by ModernList
+          Else
+            If EventType() = #PB_EventType_LeftClick
+              Debug "Button clicked in gadget " + Str(EventGadget())
+            EndIf
+          EndIf
+          
+        Case #PB_Event_CloseWindow
+          Break
+      EndSelect
+    ForEver
+    
+    FreeImage(mockImage)
+    FreeMemory(*list)
+    FreeFont(ModernList::rowFont)
+    FreeFont(ModernList::headerFont)
+  EndIf
+EndProcedure
+
+Main()
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 157
+; FirstLine = 154
+; Folding = ----
+; EnableXP
+; DPIAware
