@@ -189,7 +189,7 @@ Module App
   
   
   ExamineDesktops()
-
+  
   
   CompilerSelect #PB_Compiler_OS
     CompilerCase #PB_OS_Windows
@@ -296,7 +296,7 @@ Module App
   EndProcedure
   
   IsDarkModeActive()   
-
+  
   
   Procedure.s ReadProgramOutputBytes(ProgramID, length)
     Protected buffer
@@ -1928,7 +1928,7 @@ Module VerticalTabBar
     Next
     
     ; Create sidebar container
-
+    
     *tabBar\SidebarContainer = ContainerGadget(#PB_Any, x, y, currentSidebarWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
     *tabBar\InnerSidebarContainer  = ContainerGadget(#PB_Any, 0, 0, *tabBar\SidebarExpandedWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
     SetGadgetColor(*tabBar\InnerSidebarContainer , #PB_Gadget_BackColor, colorSideBar)
@@ -2036,7 +2036,7 @@ Module VerticalTabBar
   
   
   Procedure DoResize(*tabBar.VerticalTabBarData,externalResize = #False)
-    sidebarDifference = *tabBar\SidebarExpandedWidth - *tabBar\SidebarWidth
+    sidebarDifference.f = *tabBar\SidebarExpandedWidth - *tabBar\SidebarWidth
     parentsRoundingDeltaX.f
     If *tabBar\IsExpanded
       newWidth = *tabBar\SidebarExpandedWidth
@@ -2065,7 +2065,7 @@ Module VerticalTabBar
     
     ; ---- call user supplied handler ----
     If *tabBar\ResizeCallback
-      CallFunctionFast(*tabBar\ResizeCallback, *tabBar, *tabBar\ActiveTabIndex, newContentWidth,@parentsRoundingDeltaX )
+      CallFunctionFast(*tabBar\ResizeCallback, *tabBar, *tabBar\ActiveTabIndex, newContentWidth, *tabBar\IsExpanded,@sidebarDifference,@parentsRoundingDeltaX )
     EndIf
     
     
@@ -2306,8 +2306,7 @@ Module WindowManager
     Protected KeepWindow.i
     Protected OpenedWindowExists.i
     While KeepRunning
-      Delay(1)
-      Event = WindowEvent()
+      Event = WaitWindowEvent()
       If Event <> 0
         EventWindow = EventWindow()
         EventGadget = EventGadget()
@@ -2392,7 +2391,7 @@ Module MonitorDialog
   ExamineDesktops()
   desktopWidth =  DesktopWidth(0)
   
-
+  
   
   
   Global buttonContainer
@@ -2492,7 +2491,7 @@ Module MonitorDialog
   EndProcedure 
   
   
-  Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, *parentsRoundingDeltaX)
+  Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, IsExpanded,*deltaWidth, *parentsRoundingDeltaX)
     parentsRoundingDeltaX.f = PeekF(*parentsRoundingDeltaX)
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 0, 0)
@@ -2524,7 +2523,7 @@ Module MonitorDialog
   
   
   Procedure.i ShowWindow()
-    ShowWindowFadeIn(#WIN_ID)
+    HideWindow(#WIN_ID,#False)
     ProcedureReturn #WIN_ID
   EndProcedure 
   
@@ -2741,18 +2740,16 @@ Module MonitorDialog
           buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
           SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
         CompilerEndIf
-         *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-(85+15+85+15), 10 , 85, buttonHeight, "OK")
-        SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_BackColor, COLOR_ACCENT)
-        SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_FrontColor, RGB(255, 255, 255))
+        
+        *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-(85+15+85+15), 10 , 85, buttonHeight, "OK")
         
         *Gadgets\BtnCancel = ButtonGadget(#PB_Any, width-(85+15), 10 , 85 , buttonHeight , "Cancel")
-        SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_BackColor, RGB(60, 60, 60))
-        SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_FrontColor, themeForegroundColor)
+        
         CloseGadgetList()
         CloseGadgetList()
         
         ;VerticalTabBar::Toggle(*tabBar)
-
+        
         ; Show first tab
         OnTabClick(0)
         SetActiveTab(*tabBar,0)
@@ -2780,7 +2777,7 @@ Module MonitorDialog
       Select Event
         Case #PB_Event_Gadget          
           Select EventGadget
-            Case *Gadgets\BtnChooseColor,  *Gadgets\ContainerColorPreview
+            Case *Gadgets\BtnChooseColor
               PatternColor = ColorRequester(PatternColor)
               SetGadgetColor(*Gadgets\ContainerColorPreview, #PB_Gadget_BackColor, PatternColor)
               
@@ -3489,6 +3486,10 @@ Module AppWindow
     
     StatusNotifications.i
     
+    BtnAdd.i
+    BtnRemove.i
+    
+    
     TxtContainer.i
     LblBgColor.i
     
@@ -3511,7 +3512,7 @@ Module AppWindow
   desktopWidth =  DesktopWidth(0)
   Debug "DPI_Scale 1"
   Debug DPI_Scale
-
+  
   Global buttonContainer
   
   Global windowWidth = 650
@@ -3612,8 +3613,10 @@ Module AppWindow
   EndProcedure 
   
   
-  Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, *parentsRoundingDeltaX)
+  Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, IsExpanded,*deltaWidth,*parentsRoundingDeltaX)
     parentsRoundingDeltaX.f = PeekF(*parentsRoundingDeltaX)
+    deltaWidth.f = PeekF(*deltaWidth)
+    
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 0, 0)
     CompilerEndIf
@@ -3622,10 +3625,17 @@ Module AppWindow
     
     
     ;TODO
+    buttonGroupX = (width-30)/2-(85+15+85)/2
     
-    
-    NormalResizeGadget(*Gadgets\BtnOk, width-(85+15+85+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
-    NormalResizeGadget(*Gadgets\BtnCancel, width-(85+15), #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+    If IsExpanded
+      Debug deltaWidth
+      buttonGroupX-deltaWidth/2
+    EndIf 
+    If buttonGroupX < 0
+      buttonGroupX = 0
+    EndIf 
+    NormalResizeGadget(*Gadgets\BtnAdd, 15+buttonGroupX, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
+    NormalResizeGadget(*Gadgets\BtnRemove, 15+buttonGroupX+85+15,#PB_Ignore,#PB_Ignore , #PB_Ignore, parentsRoundingDeltaX)
     
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
@@ -3662,14 +3672,14 @@ Module AppWindow
       If OpenWindow(#WIN_ID, 0, 0, windowWidth , windowHeight , "Monitor - VS Code Style", 
                     #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget|#PB_Window_MaximizeGadget| #PB_Window_SizeGadget | #PB_Window_Invisible)
         
-         Debug "DPI_Scale 2"
-         Debug DPI_Scale
-         
-         
-          Debug "DPI_Scale 3"
-         Debug DPI_Scale
-         
-         
+        Debug "DPI_Scale 2"
+        Debug DPI_Scale
+        
+        
+        Debug "DPI_Scale 3"
+        Debug DPI_Scale
+        
+        
         SetColors()
         
         SetWindowColor(#WIN_ID, themeBackgroundColor)
@@ -3738,7 +3748,7 @@ Module AppWindow
         ; Logs
         tabIds(tabIndex) = ContainerGadget(#PB_Any, x, y, width, height, #PB_Container_BorderLess)
         
-         tg = TextGadget(#PB_Any, 10 , 10 , width-20 , height-20 , "Logs...")
+        tg = TextGadget(#PB_Any, 10 , 10 , width-20 , height-20 , "Logs...")
         SetGadgetColor(tg, #PB_Gadget_BackColor, COLOR_EDITOR_BG)
         SetGadgetColor(tg, #PB_Gadget_FrontColor, COLOR_EDITOR_TEXT)
         
@@ -3764,7 +3774,7 @@ Module AppWindow
         
         CloseGadgetList()
         
-
+        
         ; Bottom buttons
         
         buttonContainer = ContainerGadget(#PB_Any, 0, height , width, buttonAreaHeight , #PB_Container_BorderLess)
@@ -3773,13 +3783,15 @@ Module AppWindow
           buttonContainerHBrush = CreateSolidBrush_(buttonContainerBackground)
           SetProp_(GadgetID(buttonContainer), "BackgroundBrush", buttonContainerHBrush) 
         CompilerEndIf 
-        *Gadgets\BtnOk = ButtonGadget(#PB_Any , width-(85+15+85+15), 10 , 85, buttonHeight, "OK")
-        SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_BackColor, COLOR_ACCENT)
-        SetGadgetColor( *Gadgets\BtnOk, #PB_Gadget_FrontColor, RGB(255, 255, 255))
         
-        *Gadgets\BtnCancel = ButtonGadget(#PB_Any, width-(85+15), 10 , 85 , buttonHeight , "Cancel")
-        SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_BackColor, RGB(60, 60, 60))
-        SetGadgetColor(*Gadgets\BtnCancel, #PB_Gadget_FrontColor, themeForegroundColor)
+        buttonGroupX = (width-30)/2-(85+15+85)/2
+        If buttonGroupX < 0
+          buttonGroupX = 0
+        EndIf 
+        *Gadgets\BtnAdd = ButtonGadget(#PB_Any , 15+buttonGroupX, 10 , 85, buttonHeight, "Add")
+        *Gadgets\BtnRemove = ButtonGadget(#PB_Any,15+buttonGroupX+85+15, 10 , 85 , buttonHeight , "Remove")
+        
+        
         CloseGadgetList()
         CloseGadgetList()
         
@@ -4093,8 +4105,8 @@ Module Execute
     
     
     AppWindow::CreateWindow()
-
-  
+    
+    
     MonitorDialog::CreateWindow()
     
     MainWindow::Open()           
@@ -4111,16 +4123,16 @@ Module Execute
   
 EndProcedure
 
-  Execute::StartApp()
-  ; Cleanup
-  
-  WindowManager::CleanupManagedWindows()
-  App::CleanupApp() 
-  
+Execute::StartApp()
+; Cleanup
+
+WindowManager::CleanupManagedWindows()
+App::CleanupApp() 
+
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 2551
-; FirstLine = 2534
-; Folding = -------------------------------
+; CursorPosition = 2526
+; FirstLine = 2515
+; Folding = ----------------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
