@@ -1,46 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.21 (Windows - x64)">
+<project xmlns="http://www.purebasic.com/namespace" version="1.0" creator="PureBasic 6.21 - C Backend (MacOS X - arm64)">
   <section name="config">
     <options closefiles="1" openmode="0" name="Docker Status"/>
   </section>
   <section name="data">
     <explorer view="" pattern="0"/>
     <log show="1"/>
-    <lastopen date="2025-10-27 19:31" user="mschm" host="MANFRED-IDEAPAD"/>
+    <lastopen date="2025-11-01 00:02" user="mschmidbartl" host="MacBookPro"/>
   </section>
   <section name="files">
     <file name="main.pb">
       <config load="1" scan="1" panel="1" warn="1" lastopen="1" sortindex="1" panelstate="+"/>
-      <fingerprint md5="be046e5f0291c45e16bb1ea23b296125"/>
-    </file>
-    <file name="utils.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="0" sortindex="999" panelstate="+"/>
-      <fingerprint md5="b63d9ce5ca5bd8f91109b334e5fbc48f"/>
-    </file>
-    <file name="winEditor.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="3" panelstate="+"/>
-      <fingerprint md5="bee40fc6d1f6af6ff64da5ea349fe32a"/>
-    </file>
-    <file name="winIcon.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="2" panelstate="+"/>
-      <fingerprint md5="225195d6634dd2ff58b4386272acc8da"/>
-    </file>
-    <file name="winTheme.pb">
-      <config load="0" scan="1" panel="1" warn="1" lastopen="1" sortindex="4" panelstate="+"/>
-      <fingerprint md5="88750d6b12123cb97fc299d027ac7d73"/>
+      <fingerprint md5="71488aa6c83a5f8d1551345d8f0c2401"/>
     </file>
   </section>
   <section name="targets">
     <target name="Default Target" enabled="1" default="1">
       <inputfile value="main.pb"/>
-      <outputfile value="Docker Status.exe"/>
-      <executable value="..\..\Docker Status.exe"/>
-      <options thread="1" xpskin="1" dpiaware="1" dllprotection="1" debug="1" optimizer="1"/>
+      <outputfile value="Docker Status.app"/>
+      <executable value="Docker Status.app"/>
+      <options xpskin="1" dpiaware="1" debug="1" optimizer="0"/>
       <icon enable="1">icon.ico</icon>
-      <compilecount enable="1" value="514"/>
-      <buildcount enable="1" value="4"/>
-      <execonstant enable="1"/>
     </target>
   </section>
 </project>
