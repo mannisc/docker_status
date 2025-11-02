@@ -922,11 +922,12 @@ EndProcedure
 
     If length > 0
       className = LCase(PeekS(@className))
+      Debug  Str(hWnd)+" "+className
       Select className
         Case "purecontainer", "systabcontrol32"
-          
           SetGadgetBackgroundColorByHandle(hWnd, themeBackgroundColor)
-          
+        Case "purescrollarea", "purescrollareachild"
+          SetGadgetBackgroundColorByHandle(hWnd, themeBackgroundColor)
         Case "button"; Applies to Button, CheckBox, Option gadgets
           
           style.l = GetWindowLong_(hWnd, #GWL_STYLE)
@@ -993,8 +994,8 @@ EndProcedure
   
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 965
-; FirstLine = 950
+; CursorPosition = 926
+; FirstLine = 912
 ; Folding = ------
 ; EnableXP
 ; DPIAware
