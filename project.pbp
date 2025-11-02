@@ -14,6 +14,10 @@
       <config load="1" scan="1" panel="1" warn="1" lastopen="1" sortindex="1" panelstate="+"/>
       <fingerprint md5="71488aa6c83a5f8d1551345d8f0c2401"/>
     </file>
+    <file name="utils.pb">
+      <config load="0" scan="1" panel="1" warn="1" lastopen="0" sortindex="999" panelstate="+"/>
+      <fingerprint md5="b63d9ce5ca5bd8f91109b334e5fbc48f"/>
+    </file>
   </section>
   <section name="targets">
     <target name="Default Target" enabled="1" default="1">
