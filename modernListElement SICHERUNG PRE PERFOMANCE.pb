@@ -11,6 +11,8 @@ DeclareModule ModernListElement
   Prototype.i ProtoHandleGadgetEvent(*list, content.s, *interfaceData, index.i ,eventGadget.i, event.i ,childIndex.i, whichGadget = 0)
   Prototype ProtoDestroyGadget(gadget.i)
   
+  
+  
   Declare CreateElement(rowGadget.i, x.i, y.i,marginTop.i, width.i, height.i, type.i, content.s, elementIndex.i, *interface=0, autoResize=#False)
   Declare Remove(gadget.i, rowGadget.i, type.i, elementIndex.i)
   Declare HandleEvent(currentElementMap.s,foundRowGadget, foundCellGadget, foundChildGadget,childIndex,  eventGadget.i, event.i, *list, index)
@@ -45,30 +47,28 @@ DeclareModule ModernListElement
   
   Global NewMap ElementMap.ModernListElementData()
   
-  Enumeration EventHandled
-    #Event_Handled
-    #Event_Unhandled
-    #Event_Active_Changed
-  EndEnumeration
+  
   
 EndDeclareModule
 
 Module ModernListElement
-
-
-
+  
+  
   Procedure CreateElement(rowGadget.i, x.i, y.i,marginTop.i, width.i, height.i, type.i, content.s, elementIndex.i, *interface.GadgetInterface=0, autoResize=#False)
-    
+    Protected g.i = 0
     Protected containerGadget.i = 0
     Protected gadgetToStore.i = 0
     Protected *childGadgets.ChildGadgets = 0
     
-    If type = #Element_Gadget And *interface 
+    If type = #Element_Gadget And *interface
+      
       containerGadget = ContainerGadget(#PB_Any, x, y+marginTop, width, height)
+      
       *childGadgets = *interface\Create(containerGadget,content, 0, 0, width, height-marginTop)
       CloseGadgetList()
-
       gadgetToStore = containerGadget
+    Else
+      gadgetToStore = g
     EndIf
     
     Protected key$ = Str(rowGadget) + "_" + Str(elementIndex)
@@ -111,54 +111,75 @@ Module ModernListElement
   
   Procedure HandleEvent(currentElementMap.s,foundRowGadget, foundCellGadget, foundChildGadget, childIndex, eventGadget.i, event.i, *list, index)
     
-    Protected handled = #Event_Unhandled
-    
-    If eventGadget And (foundRowGadget Or  foundCellGadget Or foundChildGadget)
+    Protected handled = #False
+    If eventGadget <> 0 And foundRowGadget Or  foundCellGadget Or foundChildGadget
+      Debug "!!!HandleEvent "+Str(event)
+      Debug "TYPE "+Str(foundRowGadget)+" "+Str(foundCellGadget)+" "+Str(foundChildGadget)+" "
+      Debug "currentElementMap #"+currentElementMap
       If currentElementMap<>"" And    FindMapElement(ElementMap(),currentElementMap)
+        
         If ElementMap()\Type = #Element_Gadget And ElementMap()\EventProc
-          
           Protected actualGadget.i = 0
           ; The event came from the child gadget (button, combo, etc.)
           If foundChildGadget
+            Debug "CHILD ööööö"
             actualGadget = eventGadget
-            If ElementMap()\EventProc(*list,ElementMap()\Content,ElementMap()\InterfaceData, index,actualGadget, event,childIndex, 0 )
-              handled = #Event_Active_Changed
-            EndIf 
+            handled = ElementMap()\EventProc(*list,ElementMap()\Content,ElementMap()\InterfaceData, index,actualGadget, event,childIndex, 0 )
             
-            ;The event came from the container
+                        
+            ; The event came from the container
           ElseIf IsGadget(ElementMap()\Gadget)
-            
             actualGadget = GetGadgetData(ElementMap()\Gadget)
             If actualGadget = 0
               actualGadget = eventGadget
             EndIf
             
             If foundCellGadget 
-              If ElementMap()\EventProc(*List,ElementMap()\Content,ElementMap()\InterfaceData, index ,actualGadget, event,-1, 1 )
-                handled = #Event_Active_Changed
-              EndIf 
+              handled = ElementMap()\EventProc(*List,ElementMap()\Content,ElementMap()\InterfaceData, index ,actualGadget, event,-1, 1 )
             Else ; RowGadget
-              If ElementMap()\EventProc(*list,ElementMap()\Content,ElementMap()\InterfaceData, index ,actualGadget, event,-1, 2 )
-                handled = #Event_Active_Changed
-              EndIf 
+              handled = ElementMap()\EventProc(*list,ElementMap()\Content,ElementMap()\InterfaceData, index ,actualGadget, event,-1, 2 )
             EndIf 
           EndIf
-        EndIf 
-      Else
-        If handled = #Event_Unhandled 
+        EndIf
+        If #False And Not handled ; mapKey empty for these gadget -> ERROR FIX IF NEEDED
           Select event
             Case #PB_EventType_LeftClick   
-              Debug "Clicked gadget container: (Gadget ID: " + Str(eventGadget) + ")"
-              handled = #Event_Active_Changed
+              If ElementMap()\Type = #Element_Gadget And (ElementMap()\Gadget = eventGadget Or foundGadget)
+                Debug "Clicked gadget container: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
+                handled = #True
+              ElseIf ElementMap()\RowGadget = eventGadget
+                Protected mx.i = GetGadgetAttribute(eventGadget, #PB_Canvas_MouseX)
+                Protected my.i = GetGadgetAttribute(eventGadget, #PB_Canvas_MouseY)
+                If mx >= ElementMap()\X And mx < ElementMap()\X + ElementMap()\Width And
+                   my >= ElementMap()\Y And my < ElementMap()\Y + ElementMap()\Height
+                  Debug "Clicked " + Str(ElementMap()\Type) + ": " + ElementMap()\Content + " at (" + Str(mx) + "," + Str(my) + ")"
+                  handled = #True
+                EndIf
+              EndIf
+              
             Case #PB_EventType_Change
-              Debug "Gadget changed: (Gadget ID: " + Str(eventGadget) + ")"
-              handled = #Event_Unhandled
+              If ElementMap()\Type = #Element_Gadget
+                Debug "Gadget changed: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
+                handled = #True
+              EndIf
+              
             Case #PB_EventType_Focus
-              Debug "Gadget focused: (Gadget ID: " + Str(eventGadget) + ")"
-              handled = #Event_Unhandled
+              If ElementMap()\Type = #Element_Gadget And (ElementMap()\Gadget = eventGadget Or foundGadget)
+                Debug "Gadget focused: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
+                handled = #True
+              ElseIf ElementMap()\RowGadget = eventGadget
+                Debug "Row canvas focused for " + Str(ElementMap()\Type) + ": " + ElementMap()\Content
+                handled = #True
+              EndIf
+              
             Case #PB_EventType_LostFocus
-              Debug "Gadget lost focus: (Gadget ID: " + Str(eventGadget) + ")"
-              handled = #Event_Unhandled
+              If ElementMap()\Type = #Element_Gadget And (ElementMap()\Gadget = eventGadget Or foundGadget)
+                Debug "Gadget lost focus: " + ElementMap()\Content + " (Gadget ID: " + Str(eventGadget) + ")"
+                handled = #True
+              ElseIf ElementMap()\RowGadget = eventGadget
+                Debug "Row canvas lost focus for " + Str(ElementMap()\Type) + ": " + ElementMap()\Content
+                handled = #True
+              EndIf
           EndSelect
         EndIf
       EndIf
@@ -233,17 +254,7 @@ DeclareModule ModernList
     Array rowGadgets.i(0)
     IsResizing.i      
     ResizeEndTime.q 
-    
-    CurrentFirstVisibleListElement.i   
-    CurrentLastVisibleListElement.i   
   EndStructure
-  
-  
-  ; Global counter for unique event markers (use high range to avoid conflicts)
-  Global ResizeEventMarkerCounter.i = 100000
-  
-  ; Global mutex for marker counter (thread-safe)
-  Global ResizeMarkerMutex.i = CreateMutex()
   
   Global rowFont
   Global headerFont
@@ -252,18 +263,18 @@ DeclareModule ModernList
   Declare Refresh(*list.ModernListData)
   Declare DrawHeader(*list.ModernListData)
   Declare DrawRow(*list.ModernListData, rowIndex.i, gadget.i, active.i, hovered.i)
-  Declare RedrawAll(*list.ModernListData, redrawOnlyVisible.i = #False,redrawOnlyInvisible.i = #False, redrawOnlyChange.i = #False, oldFirstVisible = 0,oldLastVisible = 0 )
+  Declare RedrawAll(*list.ModernListData)
   Declare CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginElementTop, addLeftScrollbarMaring, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=30, User_DPI_Scale.f=1, *resizeProc=0)
   Declare AddRow(*list.ModernListData, List elements.ListElement(), height.i=0, userData.i=0)
   Declare SetRow(*list.ModernListData, rowIndex.i, List elements.ListElement(), height.i=0, userData.i=0)
   Declare ClearRows(*list.ModernListData)
-  Declare DoResize(*list.ModernListData, resizeOnlyVisible.i = #False, resizeOnlyInvisible.i = #False)
+  Declare DoResize(*list.ModernListData, externalResize=#False)
   Declare ResizeList(*list.ModernListData, width.i, height.i)
-  Declare UpdateHoverState(*list.ModernListData, disable = #False)
+  Declare UpdateHoverState(*list.ModernListData)
   Declare HandleListEvent(*list.ModernListData, eventGadget.i, event.i)
   Declare GetSelectedRow(*list.ModernListData)
   Declare GetInnerContainer(*list.ModernListData)
-  Declare CleanUp(*list.ModernListData)
+  Declare CleanUp()
 EndDeclareModule
 
 Module ModernList
@@ -282,32 +293,7 @@ Module ModernList
   Global rowFont
   Global headerFont
   
-  Structure ListsEntry
-    *list.ModernListData
-  EndStructure 
   
-  Global NewList lists.ListsEntry()
-  
-  
-  
-  
-  
-  
-  ; =============================================================================
-  ; Helper: Get next unique event marker
-  ; =============================================================================
-  Procedure.i GetNextEventMarker()
-    Protected marker.i
-    LockMutex(ResizeMarkerMutex)
-    marker = ResizeEventMarkerCounter
-    ResizeEventMarkerCounter + 1
-    ; Wrap around to maintain high range and avoid low-number collisions
-    If ResizeEventMarkerCounter >= 1000000
-      ResizeEventMarkerCounter = 100000
-    EndIf
-    UnlockMutex(ResizeMarkerMutex)
-    ProcedureReturn marker
-  EndProcedure
   
   ; =============================================================================
   ; IsBelowMousePointer – Plattformübergreifend
@@ -569,15 +555,12 @@ Module ModernList
     EndProcedure 
     
     
-    
+      
     Procedure DrawRow(*list.ModernListData, rowIndex.i, gadget.i, active.i, hovered.i)
-      
-      
       
       If gadget And IsGadget(gadget)
         
         If StartDrawing(CanvasOutput(gadget))
-          
           DrawingMode(#PB_2DDrawing_Transparent)
           DrawingFont(FontID(rowFont))
           Protected canvasW.i = OutputWidth()
@@ -586,6 +569,7 @@ Module ModernList
           
           Protected isSelected.i = active
           Protected isHovered.i = hovered
+          
           
           yMarginPos = *list\MarginElementTop**list\DPI_Scale
           
@@ -756,138 +740,204 @@ Module ModernList
               EndIf
             EndIf  
             RedrawWindow_(GadgetID(ElementMap()\Gadget), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+
             
           EndIf 
+
         Next  
       EndIf
     EndProcedure
     
-    
-    ; =============================================================================
-    ; Helper: Calculate visible row range with buffer
-    ; =============================================================================
-    Procedure GetVisibleRowRange(*list.ModernListData, *firstVisible.Integer, *lastVisible.Integer)
-      If Not *list Or Not IsGadget(*list\ScrollArea)
-        *firstVisible\i = -1
-        *lastVisible\i = -1
-        ProcedureReturn
-      EndIf
-      
-      Protected scrollY.i = GetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_Y)
-      Protected visibleHeight.i = GadgetHeight(*list\ScrollArea)
-      Protected yPos.i = 0
-      Protected rowIndex.i = 0
-      Protected rowCount.i = ListSize(*list\Rows())
-      
-      *firstVisible\i = -1
-      *lastVisible\i = -1
-      
-      If rowCount = 0
-        ProcedureReturn
-      EndIf
-      
-      ; Find visible rows
-      ForEach *list\Rows()
-        Protected rowH.i = *list\Rows()\Height
-        If rowH = 0
-          rowH = *list\RowHeight
-        EndIf
-        
-        Protected rowTop.i = yPos
-        Protected rowBottom.i = yPos + rowH
-        
-        ; Check if row intersects visible area
-        If rowBottom > scrollY And rowTop < scrollY + visibleHeight
-          If *firstVisible\i = -1
-            *firstVisible\i = rowIndex
-          EndIf
-          *lastVisible\i = rowIndex
-        EndIf
-        
-        yPos + rowH
-        rowIndex + 1
-      Next
-      
-      ; Add buffer rows above and below for smooth scrolling
-      If *firstVisible\i >= 0
-        Protected bufferSize.i = 2 ; Buffer rows on each side
-        *firstVisible\i = *firstVisible\i - bufferSize
-        If *firstVisible\i < 0
-          *firstVisible\i = 0
-        EndIf
-        *lastVisible\i = *lastVisible\i + bufferSize
-        If *lastVisible\i >= rowCount
-          *lastVisible\i = rowCount - 1
-        EndIf
-      EndIf
-    EndProcedure
-    
-    Procedure RedrawAll(*list.ModernListData, redrawOnlyVisible.i = #False,redrawOnlyInvisible.i = #False, redrawOnlyChange.i = #False, oldFirstVisible = 0,oldLastVisible = 0 )
-      
+    Procedure RedrawAll(*list.ModernListData)
       SetColors()
       DrawHeader(*list)
       
-      
-      ; Determine which rows to resize
-      Protected firstVisible.i = 0
-      Protected lastVisible.i = ListSize(*list\Rows()) - 1
-      
-      If (redrawOnlyVisible Or redrawOnlyInvisible Or redrawOnlyChange) And ListSize(*list\Rows()) > 0
-        GetVisibleRowRange(*list, @firstVisible, @lastVisible)
-        
-        ; If no visible rows found, resize all (safety fallback)
-        If firstVisible = -1 Or lastVisible = -1
-          firstVisible = 0
-          lastVisible = ListSize(*list\Rows()) - 1
-        EndIf
-      EndIf
-      
       Protected yPos.i = 0
       Protected rowIndex.i = 0
-      
-      
       ForEach *list\Rows()
         Protected rowH.i = *list\Rows()\Height
         If rowH = 0
           rowH = *list\RowHeight
         EndIf
-        
-        Protected isVisible = #False 
-        If ( Not redrawOnlyVisible And Not redrawOnlyInvisible And Not redrawOnlyChange) Or  ((redrawOnlyVisible And rowIndex >= firstVisible And rowIndex <= lastVisible) Or (redrawOnlyInvisible And (rowIndex < firstVisible Or rowIndex > lastVisible)) Or(redrawOnlyChange And((rowIndex < oldFirstVisible Or rowIndex > oldLastVisible)And(rowIndex >= firstVisible And rowIndex <= lastVisible)    )))               
-          isVisible = #True
-        ElseIf rowIndex > lastVisible
-          Break
-        EndIf 
-        
-        If isVisible
-          If rowIndex =< ArraySize(*list\rowGadgets())
-            Protected rowGadget.i = *list\rowGadgets(rowIndex)
-            If rowGadget And IsGadget(rowGadget)
-              Protected isActive.i = #False
-              Protected isHovered.i = #False
-              If rowIndex = *list\ActiveRowIndex
-                isActive = #True
-              EndIf
-              If rowIndex = *list\HoveredRowIndex
-                isHovered = #True
-              EndIf              
-              DrawRow(*list, rowIndex, rowGadget, isActive, isHovered)
+        If rowIndex =< ArraySize(*list\rowGadgets())
+          Protected rowGadget.i = *list\rowGadgets(rowIndex)
+          If rowGadget And IsGadget(rowGadget)
+            Protected isActive.i = #False
+            Protected isHovered.i = #False
+            If rowIndex = *list\ActiveRowIndex
+              isActive = #True
             EndIf
+            If rowIndex = *list\HoveredRowIndex
+              isHovered = #True
+            EndIf
+            DrawRow(*list, rowIndex, rowGadget, isActive, isHovered)
           EndIf
         EndIf
         yPos + rowH
-        
         rowIndex + 1
       Next
-      If Not redrawOnlyChange
-        Refresh(*list)
-      EndIf 
+      
+      Refresh(*list)
     EndProcedure
     
     
     
     
-    
+    Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginElementTop, addLeftScrollbarMaring, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=30, User_DPI_Scale.f=1, *resizeProc=0)
+      
+      If IsDarkModeActiveCached
+        bg = darkThemeBackgroundColor
+      Else
+        bg = lightThemeBackgroundColor
+      EndIf
+      
+      Protected *list.ModernListData = AllocateMemory(SizeOf(ModernListData))
+      Protected rowCount.i, yPos.i, rowIndex.i, elemW.i, xElem.i, rowGadget.i
+      SetColors()
+      
+      Protected fontName$
+      CompilerSelect #PB_Compiler_OS
+        CompilerCase #PB_OS_Windows
+          fontName$ = "Segoe UI"
+        CompilerCase #PB_OS_Linux
+          fontName$ = "Sans"
+        CompilerCase #PB_OS_MacOS
+          fontName$ = "Helvetica"
+      CompilerEndSelect
+      rowFont = LoadFont(#PB_Any, fontName$, 10 , #PB_Font_HighQuality)
+      headerFont = LoadFont(#PB_Any, fontName$, 10 , #PB_Font_HighQuality)
+      Debug "WINDOW######"+Str(window)
+      *list\Window = window
+      *list\Width = width 
+      *list\Height = height
+      *list\RowHeight = defaultRowHeight
+      
+      If marginSide = 0
+        marginSide = 3
+      EndIf 
+      *list\MarginSide = marginSide
+      
+      *list\AddLeftScrollbarMaring= addLeftScrollbarMaring
+      *list\MarginElementTop = marginElementTop
+      
+      *list\ActiveRowIndex = -1
+      *list\HoveredRowIndex = -1
+      *list\DPI_Scale = User_DPI_Scale
+      *list\ResizeCallback = *resizeProc
+      
+      NewList *list\Rows.ListRow()
+      rowCount = ListSize(rows())
+      CopyList(rows(), *list\Rows())
+      
+      If *header
+        CopyStructure(*header, @*list\Header, ListHeader)
+        *list\HeaderHeight = *header\Height
+        If *list\HeaderHeight = 0 : *list\HeaderHeight = *list\RowHeight : EndIf
+      Else
+        *list\HeaderHeight = 0
+      EndIf
+      
+      *list\MainContainer = ContainerGadget(#PB_Any, x, y, *list\Width, *list\Height, #PB_Container_BorderLess)
+      
+      
+      If *list\HeaderHeight > 0
+        *list\HeaderContainer = CanvasGadget(#PB_Any, 0, 0, *list\Width, *list\HeaderHeight)
+      EndIf
+      
+      Protected scrollY.i = *list\HeaderHeight
+      Protected scrollH.i = *list\Height - *list\HeaderHeight
+      Protected totalRowHeight.i = 0
+      ForEach *list\Rows()
+        Protected rowH.i = *list\Rows()\Height
+        If rowH = 0
+          rowH = *list\RowHeight
+        EndIf
+        totalRowHeight + rowH
+      Next
+      
+      
+      ; Calculate available width without scrollbar
+      Protected scrollbarWidth.i = GetScrollbarWidth(*list\DPI_Scale)
+      Protected innerWidth.i 
+      If *list\AddLeftScrollbarMaring
+        innerWidth.i = Round(( *list\Width - scrollbarWidth - *list\MarginSide*2)/*list\DPI_Scale, #PB_Round_Down   )* *list\DPI_Scale
+      Else
+        innerWidth.i = Round(( *list\Width - scrollbarWidth - *list\MarginSide*2)/*list\DPI_Scale, #PB_Round_Down   )* *list\DPI_Scale
+      EndIf 
+      If innerWidth < 0
+        innerWidth = 0
+      EndIf 
+      Protected availableWidth.i = innerWidth
+      Protected listContentWidth.i = availableWidth
+      If *list\AddLeftScrollbarMaring
+        listContentWidth = listContentWidth- scrollbarWidth
+      EndIf 
+      
+      *list\ScrollArea = ScrollAreaGadget(#PB_Any, 0, scrollY, *list\Width, scrollH, innerWidth, totalRowHeight, 0, #PB_ScrollArea_BorderLess)
+      SetGadgetColor(*list\ScrollArea,#PB_Gadget_BackColor,bg)
+      
+      
+      *list\InnerContainer = ContainerGadget(#PB_Any, 0 , 0, innerWidth, totalRowHeight, #PB_Container_BorderLess)
+      xPos = 0
+      If *list\AddLeftScrollbarMaring
+        xPos = xPos + scrollbarWidth
+      EndIf 
+      
+      yPos = 0
+      rowIndex = 0
+      Dim *list\rowGadgets(rowCount - 1)
+      ForEach *list\Rows()
+        rowH.i = *list\Rows()\Height
+        If rowH = 0
+          rowH = *list\RowHeight
+        EndIf
+        rowGadget = CanvasGadget(#PB_Any,xPos , yPos, listContentWidth, rowH, #PB_Canvas_Container | #PB_Canvas_Keyboard)
+        
+        
+        ; Calculate element widths using flex
+        Dim elemWidths.i(ListSize(*list\Rows()\Elements()) - 1)
+        CalculateElementWidths(*list\Rows()\Elements(), listContentWidth, elemWidths())
+        
+        xElem = 0
+        Protected elementIndex.i = 0
+        
+        Protected widthIndex.i = 0
+        ForEach *list\Rows()\Elements()
+          elemW = elemWidths(widthIndex)
+          Protected *interface.GadgetInterface = *list\Rows()\Elements()\Interface
+          *list\Rows()\Elements()\Gadget = ModernListElement::CreateElement(rowGadget, xElem, 0,*list\MarginElementTop, elemW, rowH, *List\Rows()\Elements()\Type, *list\Rows()\Elements()\Content, elementIndex, *interface, autoResize)
+          xElem + elemW
+          elementIndex + 1
+          widthIndex + 1
+        Next
+        
+        CloseGadgetList()
+        
+        *list\rowGadgets(rowIndex) = rowGadget
+        SetGadgetData(rowGadget, rowIndex)
+        
+        yPos + rowH 
+        rowIndex + 1
+      Next
+      
+      CloseGadgetList()
+      CloseGadgetList()
+      CloseGadgetList()
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+        
+        Protected hMain.i = GadgetID(*list\MainContainer)
+        SetWindowLongPtr_(hMain, #GWL_STYLE, GetWindowLongPtr_(hMain, #GWL_STYLE) | #WS_CLIPCHILDREN)
+        
+        Protected hScroll.i = GadgetID(*list\ScrollArea)
+        SetWindowLongPtr_(hScroll, #GWL_STYLE, GetWindowLongPtr_(hScroll, #GWL_STYLE) | #WS_CLIPCHILDREN)
+        
+        Protected hInner.i = GadgetID(*list\InnerContainer)
+        SetWindowLongPtr_(hInner, #GWL_STYLE, GetWindowLongPtr_(hInner, #GWL_STYLE) | #WS_CLIPCHILDREN)
+      CompilerEndIf
+      RedrawAll(*list)
+      
+      ProcedureReturn *list
+    EndProcedure
     
     Procedure AddRow(*list.ModernListData, List elements.ListElement(), height.i=0, userData.i=0)
       LastElement(*list\Rows())
@@ -945,9 +995,6 @@ Module ModernList
       ResizeGadget(*list\InnerContainer, #PB_Ignore, #PB_Ignore, innerWidth, totalRowHeight)
       
       RedrawAll(*list)
-      
-      GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
-      
     EndProcedure
     
     Procedure SetRow(*list.ModernListData, rowIndex.i, List elements.ListElement(), height.i=0, userData.i=0)
@@ -1059,361 +1106,23 @@ Module ModernList
       ResizeGadget(*list\InnerContainer, #PB_Ignore, #PB_Ignore, innerWidth, *list\RowHeight)
       
       RedrawAll(*list)
-      
-      GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
-      
     EndProcedure
     
     
-;##################################
-
-
-; Structure to hold deferred resize operations
-Structure DeferredResize
-  Gadget.i
-  x.f
-  y.f
-  width.f
-  height.f
-  parentsRoundingDeltaX.f
-  parentsRoundingDeltaY.f
-EndStructure
-
-
-Procedure BatchResizeGadgets(List resizeOps.DeferredResize())
-  CompilerIf  #PB_Compiler_OS = #PB_OS_Windows
-    Protected count.i = ListSize(resizeOps())
-    If count = 0
-      ProcedureReturn
-    EndIf
-    
-    ; Group gadgets by parent window
-    NewMap parentGroups.i()
-    NewList parentHandles.i()
-    
-    ; First pass: group by parent - SIMPLIFIED
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        Protected hParent = GetParent_(GadgetID(resizeOps()\Gadget))
-        Protected parentKey.s = Str(hParent)
-        
-        If FindMapElement(parentGroups(), parentKey)
-          parentGroups() + 1
-        Else
-          parentGroups(parentKey) = 1
-          AddElement(parentHandles())
-          parentHandles() = hParent
-        EndIf
-      EndIf
-    Next
-    
-    ; Disable redrawing for all parents
-    ForEach parentHandles()
-      SendMessage_(parentHandles(), #WM_SETREDRAW, 0, 0)
-    Next
-    
-    ; Process each parent group
-    ForEach parentGroups()
-      Protected parentHandle = Val(MapKey(parentGroups()))
-      Protected groupCount = parentGroups()
-      
-      If groupCount = 0
-        Continue
-      EndIf
-      
-      Protected hDWP = BeginDeferWindowPos_(groupCount)
-      If hDWP = 0
-        Continue
-      EndIf
-      
-      ; Process all gadgets with this parent - OPTIMIZED
-      ForEach resizeOps()
-        If IsGadget(resizeOps()\Gadget)
-          Protected hWnd = GadgetID(resizeOps()\Gadget)
-          hParent = GetParent_(hWnd)
-          
-          If hParent <> parentHandle
-            Continue
-          EndIf
-          
-          ; SIMPLIFIED: Just use the pre-calculated values directly
-          Protected newX.i, newY.i, newW.i, newH.i
-          
-          ; Use current position if #PB_Ignore
-          If resizeOps()\x = #PB_Ignore
-            Protected rect.RECT
-            GetWindowRect_(hWnd, @rect)
-            Protected pt.POINT
-            pt\x = rect\left
-            pt\y = rect\top
-            MapWindowPoints_(#Null, hParent, @pt, 1)
-            newX = pt\x
-          Else
-            newX = Round(resizeOps()\x * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          If resizeOps()\y = #PB_Ignore
-            If resizeOps()\x = #PB_Ignore  ; Already got rect
-              newY = pt\y
-            Else
-              GetWindowRect_(hWnd, @rect)
-              pt\x = rect\left
-              pt\y = rect\top
-              MapWindowPoints_(#Null, hParent, @pt, 1)
-              newY = pt\y
-            EndIf
-          Else
-            newY = Round(resizeOps()\y * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          If resizeOps()\width = #PB_Ignore
-            If resizeOps()\x <> #PB_Ignore Or resizeOps()\y <> #PB_Ignore
-              GetWindowRect_(hWnd, @rect)
-            EndIf
-            newW = rect\right - rect\left
-          Else
-            newW = Round(resizeOps()\width * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          If resizeOps()\height = #PB_Ignore
-            If resizeOps()\x <> #PB_Ignore Or resizeOps()\y <> #PB_Ignore Or resizeOps()\width <> #PB_Ignore
-              GetWindowRect_(hWnd, @rect)
-            EndIf
-            newH = rect\bottom - rect\top
-          Else
-            newH = Round(resizeOps()\height * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          ; Minimal flags for speed
-          Protected flags.i = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOOWNERZORDER | #SWP_NOCOPYBITS
-          hDWP = DeferWindowPos_(hDWP, hWnd, #Null, newX, newY, newW, newH, flags)
-          
-          If hDWP = 0
-            Break
-          EndIf
-        EndIf
-      Next
-      
-      If hDWP <> 0
-        EndDeferWindowPos_(hDWP)
-      EndIf
-    Next
-    
-    ; Re-enable and redraw all parents - ONE operation per parent
-    ForEach parentHandles()
-      SendMessage_(parentHandles(), #WM_SETREDRAW, 1, 0)
-      InvalidateRect_(parentHandles(), #Null, #True)
-    Next
-    
-    ; Force immediate update
-    ForEach parentHandles()
-      UpdateWindow_(parentHandles())
-    Next
-    
-    FreeList(parentHandles())
-  
-  CompilerElse
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        ResizeGadget(resizeOps()\Gadget, resizeOps()\x, resizeOps()\y, 
-                    resizeOps()\width, resizeOps()\height)
-      EndIf
-    Next
-  CompilerEndIf
-EndProcedure
-
-
-Procedure BatchResizeGadgetsX(List resizeOps.DeferredResize())
-  CompilerIf  #PB_Compiler_OS = #PB_OS_Windows
-    Protected count.i = ListSize(resizeOps())
-    If count = 0
-      ProcedureReturn
-    EndIf
-    
-    ; Group gadgets by parent window
-    NewMap parentGroups.i()
-    NewList parentHandles.i()
-    
-    ; First pass: group by parent
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        Protected hWnd = GadgetID(resizeOps()\Gadget)
-        Protected hParent = GetParent_(hWnd)
-        Protected parentKey.s = Str(hParent)
-        
-        If FindMapElement(parentGroups(), parentKey)
-          parentGroups() + 1
-        Else
-          parentGroups(parentKey) = 1
-          AddElement(parentHandles())
-          parentHandles() = hParent
-        EndIf
-      EndIf
-    Next
-    
-    ; Disable redrawing for all parents
-;     ForEach parentHandles()
-;       SendMessage_(parentHandles(), #WM_SETREDRAW, 0, 0)
-;     Next
-    
-    ; Process each parent group
-    ForEach parentGroups()
-      Protected parentHandle = Val(MapKey(parentGroups()))
-      Protected groupCount = parentGroups()
-      
-      If groupCount = 0
-        Continue
-      EndIf
-      
-      Protected hDWP = BeginDeferWindowPos_(groupCount)
-      If hDWP = 0
-        Continue
-      EndIf
-      
-      ; Process all gadgets with this parent
-      ForEach resizeOps()
-        If IsGadget(resizeOps()\Gadget)
-          hWnd = GadgetID(resizeOps()\Gadget)
-          hParent = GetParent_(hWnd)
-          
-          If hParent <> parentHandle
-            Continue
-          EndIf
-          
-          Protected currentX.f, currentY.f, currentW.f, currentH.f
-          Protected rect.RECT
-          Protected newX.f, newY.f, newW.f, newH.f
-          
-          If GetWindowRect_(hWnd, @rect)
-            Protected point.POINT
-            point\x = rect\left
-            point\y = rect\top
-            
-            MapWindowPoints_(#Null, hParent, @point, 2)
-            currentX = point\x
-            currentY = point\y
-            currentW = rect\right - rect\left
-            currentH = rect\bottom - rect\top
-          Else
-            currentX = 0.0
-            currentY = 0.0
-            currentW = 0.0
-            currentH = 0.0
-          EndIf
-          
-          Protected currentRoundingDeltaX.f = 0
-          Protected currentRoundingDeltaY.f = 0
-          
-          If resizeOps()\x = #PB_Ignore
-            newX = currentX
-            currentRoundingDeltaX = resizeOps()\parentsRoundingDeltaX
-          Else
-            newX = resizeOps()\x * DPI_Scale
-            If Round(newX, #PB_Round_Nearest) - Round(newX + resizeOps()\parentsRoundingDeltaX, #PB_Round_Nearest) = 0
-              currentRoundingDeltaX = resizeOps()\parentsRoundingDeltaX
-            EndIf
-            newX + resizeOps()\parentsRoundingDeltaX
-          EndIf
-          
-          If resizeOps()\y = #PB_Ignore
-            newY = currentY
-            currentRoundingDeltaY = resizeOps()\parentsRoundingDeltaY
-          Else
-            newY = resizeOps()\y * DPI_Scale
-            If Round(newY, #PB_Round_Nearest) - Round(newY + resizeOps()\parentsRoundingDeltaY, #PB_Round_Nearest) = 0
-              currentRoundingDeltaY = resizeOps()\parentsRoundingDeltaY
-            EndIf
-            newY + resizeOps()\parentsRoundingDeltaY
-          EndIf
-          
-          If resizeOps()\width = #PB_Ignore
-            newW = currentW
-          Else
-            currentRoundingDeltaX = currentRoundingDeltaX + newX - Round(newX, #PB_Round_Nearest)
-            newW = resizeOps()\width * DPI_Scale
-            If currentRoundingDeltaX <> 0
-              newW = newW + currentRoundingDeltaX
-            EndIf
-          EndIf
-          
-          If resizeOps()\height = #PB_Ignore
-            newH = currentH
-          Else
-            currentRoundingDeltaY = currentRoundingDeltaY + newY - Round(newY, #PB_Round_Nearest)
-            newH = resizeOps()\height * DPI_Scale
-            If currentRoundingDeltaY <> 0
-              newH = newH + currentRoundingDeltaY
-            EndIf
-          EndIf
-          
-          newX = Round(newX, #PB_Round_Nearest)
-          newY = Round(newY, #PB_Round_Nearest)
-          newW = Round(newW, #PB_Round_Nearest)
-          newH = Round(newH, #PB_Round_Nearest)
-          
-          Protected flags.i = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOOWNERZORDER | #SWP_NOCOPYBITS
-          hDWP = DeferWindowPos_(hDWP, hWnd, #Null, newX, newY, newW, newH, flags)
-          
-          If hDWP = 0
-            Break
-          EndIf
-        EndIf
-      Next
-      
-      If hDWP <> 0
-        EndDeferWindowPos_(hDWP)
-      EndIf
-    Next
-    
-    ; Re-enable and redraw all parents
-;     ForEach parentHandles()
-;       SendMessage_(parentHandles(), #WM_SETREDRAW, 1, 0)
-;       RedrawWindow_(parentHandles(), #Null, #Null, 
-;                     #RDW_ERASE | #RDW_FRAME | #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-;     Next
-    
-    FreeList(parentHandles())
-  
-  CompilerElse
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        ResizeGadget(resizeOps()\Gadget, resizeOps()\x, resizeOps()\y, 
-                    resizeOps()\width, resizeOps()\height)
-      EndIf
-    Next
-  CompilerEndIf
-EndProcedure
-
-
-
-;#########################end
-    
-
-    
-    ; =============================================================================
-    ; Core resize procedure (internal use)
-    ; =============================================================================
-    Procedure DoResize(*list.ModernListData, resizeOnlyVisible.i = #False, resizeOnlyInvisible.i = #False)
+    Procedure DoResize(*list.ModernListData, externalResize=#False)
       Protected newWidth.i = *list\Width
       Protected newHeight.i = *list\Height
       
+      If *list\ResizeCallback
+        CallFunctionFast(*list\ResizeCallback, *list, newWidth, newHeight)
+      EndIf
       
-      If Not resizeOnlyInvisible
-        ; Call user resize callback if provided
-        If *list\ResizeCallback
-          CallFunctionFast(*list\ResizeCallback, *list, newWidth, newHeight)
-        EndIf
-        
-        
-        ; Resize main containers
-        ResizeGadget(*list\MainContainer, #PB_Ignore, #PB_Ignore, newWidth, newHeight)
-        If *list\HeaderContainer And IsGadget(*list\HeaderContainer)
-          ResizeGadget(*list\HeaderContainer, #PB_Ignore, #PB_Ignore, newWidth, *list\HeaderHeight)
-        EndIf
-        ResizeGadget(*list\ScrollArea, #PB_Ignore, *list\HeaderHeight, newWidth, newHeight - *list\HeaderHeight)
-      EndIf 
+      ResizeGadget(*list\MainContainer, #PB_Ignore, #PB_Ignore, newWidth, newHeight)
+      If *list\HeaderContainer
+        ResizeGadget(*list\HeaderContainer, #PB_Ignore, #PB_Ignore, newWidth, *list\HeaderHeight)
+      EndIf
+      ResizeGadget(*list\ScrollArea, #PB_Ignore, *list\HeaderHeight, newWidth, newHeight - *list\HeaderHeight)
       
-      ; Calculate total inner height
       Protected innerH.i = 0
       ForEach *list\Rows()
         Protected rowH.i = *list\Rows()\Height
@@ -1423,222 +1132,149 @@ EndProcedure
         innerH + rowH 
       Next
       
+      
       ; Calculate available width without scrollbar
       Protected scrollbarWidth.i = GetScrollbarWidth(*list\DPI_Scale)
       Protected innerWidth.i 
       If *list\AddLeftScrollbarMaring
-        innerWidth = Round((*list\Width - scrollbarWidth - *list\MarginSide * 2) / *list\DPI_Scale, #PB_Round_Down) * *list\DPI_Scale
+        innerWidth.i = Round(( *list\Width - scrollbarWidth - *list\MarginSide*2)/*list\DPI_Scale, #PB_Round_Down   )* *list\DPI_Scale
       Else
-        innerWidth = Round((*list\Width - scrollbarWidth - *list\MarginSide * 2) / *list\DPI_Scale, #PB_Round_Down) * *list\DPI_Scale
+        innerWidth.i = Round(( *list\Width - scrollbarWidth - *list\MarginSide*2)/*list\DPI_Scale, #PB_Round_Down   )* *list\DPI_Scale
       EndIf 
       If innerWidth < 0
         innerWidth = 0
       EndIf 
-      
       Protected availableWidth.i = innerWidth
       Protected listContentWidth.i = availableWidth
       If *list\AddLeftScrollbarMaring
-        listContentWidth = listContentWidth - scrollbarWidth
+        listContentWidth = listContentWidth- scrollbarWidth
       EndIf 
       
-      If Not resizeOnlyInvisible
-        
-        ; Update scroll area
-        SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerWidth, innerWidth)
-        SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerHeight, innerH)
-        ResizeGadget(*list\InnerContainer, #PB_Ignore, #PB_Ignore, innerWidth, innerH)
-        
-        ; Recalculate header column widths
-        If *list\HeaderContainer And ListSize(*list\Header\Columns()) > 0
-          Dim headerWidths.i(ListSize(*list\Header\Columns()) - 1)
-          CalculateElementWidths(*list\Header\Columns(), listContentWidth, headerWidths())
-        EndIf
-      EndIf 
-      ; Determine which rows to resize
-      Protected firstVisible.i = 0
-      Protected lastVisible.i = ListSize(*list\Rows()) - 1
-      If (resizeOnlyVisible Or resizeOnlyInvisible) And ListSize(*list\Rows()) > 0
-        GetVisibleRowRange(*list, @firstVisible, @lastVisible)
-        ; If no visible rows found, resize all (safety fallback)
-        If firstVisible = -1 Or lastVisible = -1
-          firstVisible = 0
-          lastVisible = ListSize(*list\Rows()) - 1
-        EndIf
+      
+      SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerWidth, innerWidth - 1)
+      SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerWidth, innerWidth)
+      SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerHeight, innerH)
+      ResizeGadget(*list\InnerContainer, #PB_Ignore, #PB_Ignore, innerWidth, innerH)
+      
+      ; Recalculate header column widths
+      If *list\HeaderContainer
+        Dim headerWidths.i(ListSize(*list\Header\Columns()) - 1)
+        CalculateElementWidths(*list\Header\Columns(), listContentWidth, headerWidths())
       EndIf
-      Debug "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX start resize"
-      ;  SendMessage_(GadgetID(*list\InnerContainer), #WM_SETREDRAW, 0, 0)
-      ; Resize rows
+      
       Protected yPos.i = 0
       Protected rowIndex.i = 0
-      
       ForEach *list\Rows()
-        rowH = *list\Rows()\Height
+        rowH.i = *list\Rows()\Height
         If rowH = 0
           rowH = *list\RowHeight
         EndIf
-        Protected isVisible = #False 
-        
-        If  ( Not resizeOnlyVisible And Not resizeOnlyInvisible) Or  ((resizeOnlyVisible And rowIndex >= firstVisible And rowIndex <= lastVisible) Or (resizeOnlyInvisible And (rowIndex < firstVisible Or rowIndex > lastVisible)))
-          isVisible = #True
-        ElseIf rowIndex > lastVisible
-          Break
-        EndIf 
-        
-        If isVisible 
-          internat+1
-          If rowIndex <= ArraySize(*list\rowGadgets())
-            Protected rowGadget.i = *list\rowGadgets(rowIndex)
-            If rowGadget And IsGadget(rowGadget)
-              ; Fully resize visible rows including all elements
-              ResizeGadget(rowGadget, #PB_Ignore, yPos, listContentWidth, rowH)
+        If rowIndex <= ArraySize(*list\rowGadgets())
+          Protected rowGadget.i = *list\rowGadgets(rowIndex)
+          If rowGadget And IsGadget(rowGadget)
+            ResizeGadget(rowGadget, #PB_Ignore, yPos, innerWidth, rowH)
+            
+            ; Recalculate element widths for this row
+            Dim elemWidths.i(ListSize(*list\Rows()\Elements()) - 1)
+            CalculateElementWidths(*list\Rows()\Elements(), listContentWidth, elemWidths())
+            
+            ; Reposition and resize elements within the row
+            Protected xPos.i = 0
+            Protected elemIndex.i = 0
+            ForEach *list\Rows()\Elements()
+              Protected elemW.i = elemWidths(elemIndex)
+              Protected key$ = Str(rowGadget) + "_" + Str(elemIndex)
               
-              ; Recalculate element widths for this row
-              Dim elemWidths.i(ListSize(*list\Rows()\Elements()) - 1)
-              CalculateElementWidths(*list\Rows()\Elements(), listContentWidth, elemWidths())
-              
-              ; Reposition and resize elements within the row
-              Protected xPos.i = 0
-              Protected elemIndex.i = 0
-              ForEach *list\Rows()\Elements()
-                Protected elemW.i = elemWidths(elemIndex)
-                Protected key$ = Str(rowGadget) + "_" + Str(elemIndex)
+              ; Update element position and size in ElementMap
+              If FindMapElement(ModernListElement::ElementMap(), key$)
+                ModernListElement::ElementMap()\X = xPos
+                ModernListElement::ElementMap()\Width = elemW
                 
-                ; Update element position and size in ElementMap
-                If FindMapElement(ModernListElement::ElementMap(), key$)
-                  ModernListElement::ElementMap()\X = xPos
-                  ModernListElement::ElementMap()\Width = elemW
-                  ; Resize container gadget if it's a gadget element
-                  If ModernListElement::ElementMap()\Type = #Element_Gadget And ModernListElement::ElementMap()\Gadget
-                    If IsGadget(ModernListElement::ElementMap()\Gadget)
-                      ; Resize child gadgets within container
-                      If ModernListElement::ElementMap()\ChildGadgets
-                        ForEach ModernListElement::ElementMap()\ChildGadgets\Gadgets()
-                          If ModernListElement::ElementMap()\AutoResize And IsGadget(ModernListElement::ElementMap()\ChildGadgets\Gadgets())
-                            ;ResizeGadget(ModernListElement::ElementMap()\ChildGadgets\Gadgets(), #PB_Ignore, #PB_Ignore, elemW, #PB_Ignore)
-                          EndIf
-                        Next
-                      EndIf
-                      ResizeGadget(ModernListElement::ElementMap()\Gadget, xPos, #PB_Ignore, elemW, #PB_Ignore)
-                      Debug "Y"+Str(rowIndex)
+                ; Resize container gadget if it's a gadget element
+                If ModernListElement::ElementMap()\Type = #Element_Gadget And ModernListElement::ElementMap()\Gadget
+                  If IsGadget(ModernListElement::ElementMap()\Gadget)
+                   
+                  ResizeGadget(ModernListElement::ElementMap()\Gadget, xPos, #PB_Ignore, elemW, #PB_Ignore)
+                   
+                    ; Resize child gadgets within container
+                    If ModernListElement::ElementMap()\ChildGadgets
+                      ForEach ModernListElement::ElementMap()\ChildGadgets\Gadgets()
+                        If  ModernListElement::ElementMap()\AutoResize And  IsGadget(ModernListElement::ElementMap()\ChildGadgets\Gadgets())
+                         ResizeGadget(ModernListElement::ElementMap()\ChildGadgets\Gadgets(), #PB_Ignore, #PB_Ignore, elemW, #PB_Ignore)
+                        EndIf
+                      Next
                     EndIf
+
                   EndIf
                 EndIf
-                
-                xPos + elemW
-                elemIndex + 1
-              Next 
-            EndIf
+              EndIf
+              
+              xPos + elemW
+              elemIndex + 1
+            Next
           EndIf
         EndIf
-        
         yPos + rowH 
         rowIndex + 1
       Next
-      Debug ""
-      Debug ""
       
-      ; SendMessage_(GadgetID(*list\InnerContainer), #WM_SETREDRAW, 1, 0)
-      
-      ;RedrawWindow_(GadgetID(*list\ScrollArea), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW )
-      
-      
+      ; Don't refresh here - let ResizeList handle it
+      ; If Not externalResize
+      ;   Refresh(*list)
+      ; EndIf
     EndProcedure
     
-    ; =============================================================================
-    ; Public: Resize list
-    ; =============================================================================
-    
     Procedure ResizeList(*list.ModernListData, width.i, height.i)
-      
-      If Not *list
-        ProcedureReturn
-      EndIf
-      
       *list\IsResizing = #True
-
-      ; Disable redrawing during resize for better performance (Windows only)
+      
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+        ;SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
         
-        If IsGadget(*list\ScrollArea)
-          SendMessage_(GadgetID(*list\ScrollArea), #WM_SETREDRAW, #False, 0)
-          SendMessage_(GadgetID(*list\InnerContainer), #WM_SETREDRAW, #False, 0)
-          SendMessage_(GadgetID(*list\MainContainer), #WM_SETREDRAW, #False, 0)
-        EndIf
-        
-        NewMap rowGadgets.i()
-        For i = *list\CurrentFirstVisibleListElement To *list\CurrentLastVisibleListElement
-          SendMessage_(GadgetID(*list\rowGadgets(i)), #WM_SETREDRAW, #False, 0)
-          rowGadgets(Str(*list\rowGadgets(i))) = #True
-        Next
-        
-        ; Disable redraw for all child gadgets
         ForEach ModernListElement::ElementMap()
-          If FindMapElement(rowGadgets(), Str(ModernListElement::ElementMap()\RowGadget)) And ModernListElement::ElementMap()\ChildGadgets
-            ForEach ModernListElement::ElementMap()\ChildGadgets\Gadgets()
-              If IsGadget(ModernListElement::ElementMap()\ChildGadgets\Gadgets())
-                ;SendMessage_(GadgetID(ModernListElement::ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #False, 0)
+          If ElementMap()\ChildGadgets <> 0
+            ForEach ElementMap()\ChildGadgets\Gadgets()
+              If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
+               ; SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #False, 0)
               EndIf 
             Next 
           EndIf  
         Next 
       CompilerEndIf
       
-      ; Update dimensions
       *list\Width = width
       *list\Height = height
+      DoResize(*list, #False)
       
-      ; Do initial resize with only visible rows (fast)
-      DoResize(*list, #True)
-      
-      ; Re-enable redrawing
-      
-      CompilerIf   #PB_Compiler_OS = #PB_OS_Windows
-        If IsGadget(*list\ScrollArea)
-          SendMessage_(GadgetID(*list\ScrollArea), #WM_SETREDRAW, #True, 0)
-          SendMessage_(GadgetID(*list\InnerContainer), #WM_SETREDRAW, #True, 0)
-          SendMessage_(GadgetID(*list\MainContainer), #WM_SETREDRAW, #True, 0)
-          
-        EndIf
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+       ; SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
         
-        For i = *list\CurrentFirstVisibleListElement To *list\CurrentLastVisibleListElement
-          SendMessage_(GadgetID(*list\rowGadgets(i)), #WM_SETREDRAW, #True, 0)
-        Next
-        
-        ; Enable redraw for all child gadgets
         ForEach ModernListElement::ElementMap()
-          If FindMapElement(rowGadgets(), Str(ModernListElement::ElementMap()\RowGadget)) And ModernListElement::ElementMap()\ChildGadgets
-            ForEach ModernListElement::ElementMap()\ChildGadgets\Gadgets()
-              If IsGadget(ModernListElement::ElementMap()\ChildGadgets\Gadgets())
-                RedrawWindow_(GadgetID(*list\ScrollArea), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW )
-                ;SendMessage_(GadgetID(ModernListElement::ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
+          If ElementMap()\ChildGadgets <> 0
+            ForEach ElementMap()\ChildGadgets\Gadgets()
+              If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
+              ;  SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
               EndIf 
             Next 
           EndIf  
         Next 
-      CompilerEndIf
-      
-      RedrawAll(*list, #True)
-      
-
+        ;SendMessage_(hMain, #WM_SETREDRAW, #True, 0)
+        ;InvalidateRect_(GadgetID(*list\ScrollArea) , #Null, #True)
+        ; InvalidateRect_(hMain, #Null, #True)
         
-      
-
-      ; Force scrollbar update (Windows only)
+        ;UpdateWindow_(hMain)
+      CompilerEndIf
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        Protected hWnd.i = GadgetID(*list\ScrollArea)
+        Protected hWnd = GadgetID(*list\ScrollArea)
         If hWnd
-          SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
+          ; Force immediate non-client repaint (scrollbars)
+          ;SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
         EndIf
       CompilerEndIf
-      
-      ; Redraw visible elements
-      
+      RedrawAll(*list)
       
       *list\IsResizing = #False
       *list\ResizeEndTime = ElapsedMilliseconds() + 300
-      
     EndProcedure
-    
     
     
     ; FIXED: Use DesktopUnscaledX/Y to get actual physical mouse position
@@ -1646,6 +1282,8 @@ EndProcedure
       If Not IsGadget(gadget)
         ProcedureReturn #False
       EndIf
+      Debug "XYX"
+      Debug window
       
       ; Get PHYSICAL mouse position (unscaled by DPI)
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
@@ -1669,60 +1307,12 @@ EndProcedure
       ProcedureReturn #False
     EndProcedure
     
-    
-    
-    Procedure UpdateActiveState(*list.ModernListData, rowIndex)
-      ; Update active state if changed
-      If rowIndex <> *list\ActiveRowIndex
-        oldRowIndex.i = *list\ActiveRowIndex
-        *list\ActiveRowIndex = mouseOverRow
-        
-        ; Redraw old active row
-        If oldRowIndex >= 0 And oldRowIndex <= ArraySize(*list\rowGadgets())
-          If *list\rowGadgets(oldRowIndex) And IsGadget(*list\rowGadgets(oldRowIndex))
-            DrawRow(*list, oldRowIndex, *list\rowGadgets(oldRowIndex), #False, #False)
-          EndIf
-        EndIf
-        
-        ; Redraw new active row
-        If rowIndex >= 0 And rowIndex <= ArraySize(*list\rowGadgets())
-          If *list\rowGadgets(rowIndex) And IsGadget(*list\rowGadgets(rowIndex))
-            DrawRow(*list, rowIndex, *list\rowGadgets(rowIndex), #True, #True)
-          EndIf
-        EndIf
-        *list\ActiveRowIndex = rowIndex  
-      EndIf
-    EndProcedure
-    
-    
-    
-    Procedure UpdateHoverState(*list.ModernListData, disable = #False)
-      
-      
-      Protected oldHoverRow.i
-      Protected oldIsActive.i
-      If disable
-        oldHoverRow.i = *list\HoveredRowIndex
-        If oldHoverRow >0 And oldHoverRow <= ArraySize(*list\rowGadgets())
-          ; Redraw old hovered row
-          oldHoverRow = *list\HoveredRowIndex
-          If *list\rowGadgets(oldHoverRow) And IsGadget(*list\rowGadgets(oldHoverRow))
-            oldIsActive.i = #False
-            If oldHoverRow = *list\ActiveRowIndex
-              oldIsActive = #True
-            EndIf
-            DrawRow(*list, oldHoverRow, *list\rowGadgets(oldHoverRow), oldIsActive, #False)
-          EndIf
-          *list\HoveredRowIndex = -1
-        EndIf
-        ProcedureReturn
-      EndIf 
-      
-      
+    Procedure UpdateHoverState(*list.ModernListData)
       ; Block hover updates during and shortly after resize
       If *list\IsResizing Or ElapsedMilliseconds() < *list\ResizeEndTime
         ProcedureReturn
       EndIf
+      Debug "! UpdateHoverState"
       Protected mouseOverRow.i = -1
       Protected foundHover.i = #False
       
@@ -1765,13 +1355,13 @@ EndProcedure
       
       ; Update hover state if changed
       If mouseOverRow <> *list\HoveredRowIndex
-        oldHoverRow.i = *list\HoveredRowIndex
+        Protected oldHoverRow.i = *list\HoveredRowIndex
         *list\HoveredRowIndex = mouseOverRow
         
         ; Redraw old hovered row
         If oldHoverRow >= 0 And oldHoverRow <= ArraySize(*list\rowGadgets())
           If *list\rowGadgets(oldHoverRow) And IsGadget(*list\rowGadgets(oldHoverRow))
-            oldIsActive.i = #False
+            Protected oldIsActive.i = #False
             If oldHoverRow = *list\ActiveRowIndex
               oldIsActive = #True
             EndIf
@@ -1792,132 +1382,13 @@ EndProcedure
       EndIf
     EndProcedure
     
-    
-    Procedure HandleScrollBar(*list.ModernListData,eventGadget)
-      ;RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
-      ; RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-      ;      ForEach ModernListElement::ElementMap()
-      ;               If ElementMap()\ChildGadgets <> 0
-      ;                 ForEach ElementMap()\ChildGadgets\Gadgets()
-      ;                   If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
-      ;                     SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #False, 0)
-      ;                   EndIf 
-      ;                 Next 
-      ;               EndIf 
-      ;             Next  
-      SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
-      
-      DoResize(*list,#True)
-      RedrawAll(*list, #False,#False,#True,*list\CurrentFirstVisibleListElement,*list\CurrentLastVisibleListElement)
-      
-      GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
-      
-      
-      SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
-      ;             ForEach ModernListElement::ElementMap()
-      ;               If ElementMap()\ChildGadgets <> 0
-      ;                 ForEach ElementMap()\ChildGadgets\Gadgets()
-      ;                   If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
-      ;                     SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
-      ;                   EndIf 
-      ;                 Next 
-      ;               EndIf 
-      ;             Next  
-      RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
-      ;RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        Protected hWnd.i = GadgetID(*list\ScrollArea)
-        If hWnd
-          SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
-        EndIf
-      CompilerEndIf
-      
-      
-      
-    EndProcedure
-    
-    Procedure HandleScrollWeel(*list.ModernListData,eventGadget)
-      
-      Protected delta.f = GetGadgetAttribute(eventGadget, #PB_Canvas_WheelDelta)
-      Protected currentY.i = GetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_Y)
-      Protected scrollSpeed.i
-      
-      CompilerSelect #PB_Compiler_OS
-        CompilerCase #PB_OS_Windows               
-          scrollSpeed = delta*26
-        CompilerCase #PB_OS_MacOS
-          scrollSpeed = delta * 45
-        CompilerCase #PB_OS_Linux
-          scrollSpeed = (delta / 120) * 45
-      CompilerEndSelect     
-      
-      innerHeight = GetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerHeight)
-      
-      If Not ((currentY <= 0 And scrollSpeed > 0) Or( currentY >= innerHeight-GadgetHeight(*list\ScrollArea) And scrollSpeed < 0))
-        ;         ForEach ModernListElement::ElementMap()
-        ;           If ElementMap()\ChildGadgets <> 0
-        ;             ForEach ElementMap()\ChildGadgets\Gadgets()
-        ;               If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
-        ;                 SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #False, 0)
-        ;               EndIf 
-        ;             Next 
-        ;           EndIf 
-        ;         Next  
-        If scrollSpeed<>0
-          UpdateHoverState(*list.ModernListData, #True )
-        EndIf 
-        SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
-        
-        Protected oldFirstVisible.i = 0
-        Protected oldLastVisible.i = ListSize(*list\Rows()) - 1
-        GetVisibleRowRange(*list, @oldFirstVisible, @oldLastVisible)
-        
-        
-        SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_Y, currentY - scrollSpeed)
-        
-        
-        DoResize(*list,#True)
-        RedrawAll(*list, #False,#False,#True,oldFirstVisible,oldLastVisible)
-        
-        
-        GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
-        
-        
-        
-        SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
-        ;         ForEach ModernListElement::ElementMap()
-        ;           If ElementMap()\ChildGadgets <> 0
-        ;             ForEach ElementMap()\ChildGadgets\Gadgets()
-        ;               If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
-        ;                 SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
-        ;               EndIf 
-        ;             Next 
-        ;           EndIf 
-        ;         Next  
-        ; RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-        RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
-        
-        ;UpdateWindow_(GadgetID(*list\ScrollArea))
-        ;RedrawWindow_(GadgetID(*list\ScrollArea), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
-         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        Protected hWnd.i = GadgetID(*list\ScrollArea)
-        If hWnd
-          SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
-        EndIf
-      CompilerEndIf
-        
-      EndIf 
-      
-    EndProcedure 
-    
-    
     Procedure HandleListEvent(*list.ModernListData, eventGadget.i, eventType.i)
       ; Block ALL events during and shortly after resize
       ;     Debug "HandleListEvent called - eventGadget: " + Str(eventGadget) + " event: " + Str(eventType) + 
       ;         " ScrollArea: " + Str(*list\ScrollArea) + " InnerContainer: " + Str(*list\InnerContainer)
       ;   
       
-      If *List\IsResizing Or ElapsedMilliseconds() < *list\ResizeEndTime
+      If *list\IsResizing Or ElapsedMilliseconds() < *list\ResizeEndTime
         ProcedureReturn #False
       EndIf
       If eventGadget = *list\ScrollArea
@@ -1931,12 +1402,57 @@ EndProcedure
       EndIf
       
       Select eventType 
-          
         Case #PB_EventType_MouseWheel
-          HandleScrollWeel(*list,eventGadget)
+          Protected delta.f = GetGadgetAttribute(eventGadget, #PB_Canvas_WheelDelta)
+          Protected currentY.i = GetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_Y)
+          Protected scrollSpeed.i
+          
+          CompilerSelect #PB_Compiler_OS
+            CompilerCase #PB_OS_Windows               
+              scrollSpeed = delta*26
+            CompilerCase #PB_OS_MacOS
+              scrollSpeed = delta * 45
+            CompilerCase #PB_OS_Linux
+              scrollSpeed = (delta / 120) * 45
+          CompilerEndSelect     
+          
+          innerHeight = GetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_InnerHeight)
+          
+          If Not ((currentY <= 0 And scrollSpeed > 0) Or( currentY >= innerHeight-GadgetHeight(*list\ScrollArea) And scrollSpeed < 0))
+            ForEach ModernListElement::ElementMap()
+              If ElementMap()\ChildGadgets <> 0
+                ForEach ElementMap()\ChildGadgets\Gadgets()
+                  If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
+                    SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #False, 0)
+                  EndIf 
+                Next 
+              EndIf 
+            Next  
+            SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
+            SetGadgetAttribute(*list\ScrollArea, #PB_ScrollArea_Y, currentY - scrollSpeed)
+            SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
+            ForEach ModernListElement::ElementMap()
+              If ElementMap()\ChildGadgets <> 0
+                ForEach ElementMap()\ChildGadgets\Gadgets()
+                  If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
+                    SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
+                  EndIf 
+                Next 
+              EndIf 
+            Next  
+            RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
+            RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
+            
+            ;UpdateWindow_(GadgetID(*list\ScrollArea))
+            ;RedrawWindow_(GadgetID(*list\ScrollArea), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+            UpdateHoverState(*list.ModernListData) ; TODO DEBOUNCE TO AVOID FLICKER
+
+            
+          EndIf 
           
         Default ;Other Events
           
+
           Protected rowIndex.i = -1
           Protected foundRow.i = #False
           Protected foundGadget = #False 
@@ -1955,6 +1471,7 @@ EndProcedure
               Break
             EndIf
           Next
+         
           
           If Not foundRow
             ForEach ModernListElement::ElementMap()
@@ -1976,6 +1493,7 @@ EndProcedure
                     foundGadget = #True 
                     foundChildGadget = #True
                     mapKey = MapKey(ElementMap())
+                    Debug "GGGGGGGGGGG #"+MapKey(ElementMap())+"#"
                     Break 
                   EndIf 
                   childIndex  +1 
@@ -1999,13 +1517,19 @@ EndProcedure
               EndIf
             Next
           EndIf 
-          
-          
+
+
           If foundRow And rowIndex >= 0 And rowIndex < ListSize(*list\Rows())
-            
-            handled = ModernListElement::HandleEvent(mapKey,foundRowGadget, foundCellGadget, foundChildGadget,childIndex, eventGadget, eventType,*list,rowIndex )
-            If handled =  #Event_Active_Changed
-              UpdateActiveState(*list,rowIndex)
+            handled = ModernListElement::HandleEvent(mapKey,foundRowGadget, foundCellGadget, foundChildGadget,childIndex, eventGadget, event,*list,rowIndex )
+            If Not handled
+              Select eventType
+                Case #PB_EventType_LeftClick,#PB_EventType_LeftDoubleClick,#PB_EventType_RightClick,  #PB_EventType_Change
+                  *list\ActiveRowIndex = rowIndex
+                  *list\HoveredRowIndex = rowIndex  
+                  Debug "!!!!!!!!!!!!!!!!!!!!!!!!!!CLICKED## "+Str(rowIndex)+" XX #"+mapKey+"#"
+                  
+                  RedrawAll(*list)
+              EndSelect
             EndIf 
             ProcedureReturn handled
           EndIf
@@ -2021,213 +1545,7 @@ EndProcedure
       ProcedureReturn *list\InnerContainer
     EndProcedure
     
-    
-    
-    
-    
-    
-    Procedure ScrollAreaCallback()
-      If EventType() = 0 ; Scrollevent
-        ForEach lists()
-          If lists()\list\ScrollArea = EventGadget()
-            HandleScrollBar(lists()\list,lists()\list\ScrollArea)
-          EndIf 
-        Next 
-      EndIf 
-      
-    EndProcedure
-
-
-
-Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginElementTop, addLeftScrollbarMaring, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=30, User_DPI_Scale.f=1, *resizeProc=0)
-      
-      
-      
-      If IsDarkModeActiveCached
-        bg = darkThemeBackgroundColor
-      Else
-        bg = lightThemeBackgroundColor
-      EndIf
-      
-      Protected *list.ModernListData = AllocateMemory(SizeOf(ModernListData))
-      
-      
-      AddElement(lists())
-      lists()\list = *list
-      
-      Protected rowCount.i, yPos.i, rowIndex.i, elemW.i, xElem.i, rowGadget.i
-      SetColors()
-      
-      Protected fontName$
-      CompilerSelect #PB_Compiler_OS
-        CompilerCase #PB_OS_Windows
-          fontName$ = "Segoe UI"
-        CompilerCase #PB_OS_Linux
-          fontName$ = "Sans"
-        CompilerCase #PB_OS_MacOS
-          fontName$ = "Helvetica"
-      CompilerEndSelect
-      
-      rowFont = LoadFont(#PB_Any, fontName$, 10 , #PB_Font_HighQuality)
-      headerFont = LoadFont(#PB_Any, fontName$, 10 , #PB_Font_HighQuality)
-      *list\Window = window
-      *list\Width = width 
-      *list\Height = height
-      *list\RowHeight = defaultRowHeight
-      
-      If marginSide = 0
-        marginSide = 3
-      EndIf 
-      *list\MarginSide = marginSide
-      
-      *list\AddLeftScrollbarMaring= addLeftScrollbarMaring
-      *list\MarginElementTop = marginElementTop
-      
-      *list\ActiveRowIndex = -1
-      *list\HoveredRowIndex = -1
-      *list\DPI_Scale = User_DPI_Scale
-      *list\ResizeCallback = *resizeProc
-      
-      NewList *list\Rows.ListRow()
-      rowCount = ListSize(rows())
-      CopyList(rows(), *list\Rows())
-      
-      If *header
-        CopyStructure(*header, @*list\Header, ListHeader)
-        *list\HeaderHeight = *header\Height
-        If *list\HeaderHeight = 0 : *list\HeaderHeight = *list\RowHeight : EndIf
-      Else
-        *list\HeaderHeight = 0
-      EndIf
-      
-      *list\MainContainer = ContainerGadget(#PB_Any, x, y, *list\Width, *list\Height, #PB_Container_BorderLess)
-      
-
-      
-      If *list\HeaderHeight > 0
-        *list\HeaderContainer = CanvasGadget(#PB_Any, 0, 0, *list\Width, *list\HeaderHeight)
-      EndIf
-      
-      Protected scrollY.i = *list\HeaderHeight
-      Protected scrollH.i = *list\Height - *list\HeaderHeight
-      Protected totalRowHeight.i = 0
-      ForEach *list\Rows()
-        Protected rowH.i = *list\Rows()\Height
-        If rowH = 0
-          rowH = *list\RowHeight
-        EndIf
-        totalRowHeight + rowH
-      Next
-      
-      
-      ; Calculate available width without scrollbar
-      Protected scrollbarWidth.i = GetScrollbarWidth(*list\DPI_Scale)
-      Protected innerWidth.i 
-      If *list\AddLeftScrollbarMaring
-        innerWidth.i = Round(( *list\Width - scrollbarWidth - *list\MarginSide*2)/*list\DPI_Scale, #PB_Round_Down   )* *list\DPI_Scale
-      Else
-        innerWidth.i = Round(( *list\Width - scrollbarWidth - *list\MarginSide*2)/*list\DPI_Scale, #PB_Round_Down   )* *list\DPI_Scale
-      EndIf 
-      If innerWidth < 0
-        innerWidth = 0
-      EndIf 
-      Protected availableWidth.i = innerWidth
-      Protected listContentWidth.i = availableWidth
-      If *list\AddLeftScrollbarMaring
-        listContentWidth = listContentWidth- scrollbarWidth
-      EndIf 
-      
-      *list\ScrollArea = ScrollAreaGadget(#PB_Any, 0, scrollY, *list\Width, scrollH, innerWidth, totalRowHeight, 0, #PB_ScrollArea_BorderLess)
-      SetGadgetColor(*list\ScrollArea,#PB_Gadget_BackColor,bg)
-      
-
-
-
-      ; Apply to your ScrollAreaGadget
-      BindGadgetEvent(*list\ScrollArea, @ScrollAreaCallback())
-      
-      *list\InnerContainer = ContainerGadget(#PB_Any, 0 , 0, innerWidth, totalRowHeight, #PB_Container_BorderLess)
-
-
-      
-      xPos = 0
-      If *list\AddLeftScrollbarMaring
-        xPos = xPos + scrollbarWidth
-      EndIf 
-      
-      yPos = 0
-      rowIndex = 0
-      Dim *list\rowGadgets(rowCount - 1)
-      ForEach *list\Rows()
-        rowH.i = *list\Rows()\Height
-        If rowH = 0
-          rowH = *list\RowHeight
-        EndIf
-        rowGadget = CanvasGadget(#PB_Any,xPos , yPos, listContentWidth, rowH, #PB_Canvas_Container | #PB_Canvas_Keyboard)
-
-
-        
-        ; Calculate element widths using flex
-        Dim elemWidths.i(ListSize(*list\Rows()\Elements()) - 1)
-        CalculateElementWidths(*list\Rows()\Elements(), listContentWidth, elemWidths())
-        
-        xElem = 0
-        Protected elementIndex.i = 0
-        
-        Protected widthIndex.i = 0
-        ForEach *list\Rows()\Elements()
-          elemW = elemWidths(widthIndex)
-          Protected *interface.GadgetInterface = *list\Rows()\Elements()\Interface
-          *list\Rows()\Elements()\Gadget = ModernListElement::CreateElement(rowGadget, xElem, 0,*list\MarginElementTop, elemW, rowH, *List\Rows()\Elements()\Type, *list\Rows()\Elements()\Content, elementIndex, *interface, autoResize)
-          
-
-
-          xElem + elemW
-          elementIndex + 1
-          widthIndex + 1
-        Next
-        
-        CloseGadgetList()
-        
-        *list\rowGadgets(rowIndex) = rowGadget
-        SetGadgetData(rowGadget, rowIndex)
-        
-        yPos + rowH 
-        rowIndex + 1
-      Next
-      
-      CloseGadgetList()
-      CloseGadgetList()
-      CloseGadgetList()
-      CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        
-        Protected hMain.i = GadgetID(*list\MainContainer)
-        SetWindowLongPtr_(hMain, #GWL_STYLE, GetWindowLongPtr_(hMain, #GWL_STYLE) | #WS_CLIPCHILDREN)
-        
-        Protected hScroll.i = GadgetID(*list\ScrollArea)
-        SetWindowLongPtr_(hScroll, #GWL_STYLE, GetWindowLongPtr_(hScroll, #GWL_STYLE) | #WS_CLIPCHILDREN)
-        
-        Protected hInner.i = GadgetID(*list\InnerContainer)
-        SetWindowLongPtr_(hInner, #GWL_STYLE, GetWindowLongPtr_(hInner, #GWL_STYLE) | #WS_CLIPCHILDREN)
-      CompilerEndIf
-      RedrawAll(*list)
-      
-      GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
-      
-      
-      ProcedureReturn *list
-    EndProcedure
-    
-    
-    
-    
-    Procedure CleanUp(*list.ModernListData)
-      
-      If Not *list
-        ProcedureReturn
-      EndIf
-      FreeMemory(*list)
-      
+    Procedure CleanUp()
       ForEach brushes()
         DeleteObject_(brushes())
       Next 
@@ -2236,8 +1554,8 @@ Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginEl
   EndModule
 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1506
-; FirstLine = 1486
-; Folding = ---------
+; CursorPosition = 979
+; FirstLine = 958
+; Folding = -------
 ; EnableXP
 ; DPIAware

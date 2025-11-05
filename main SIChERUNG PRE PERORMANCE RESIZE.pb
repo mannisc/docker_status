@@ -1,9 +1,4 @@
 ﻿; -------------------- CONSTANTS --------------------
-
-
-
-
-
 DeclareModule App
   #APP_TITLE = "Docker Status"
   
@@ -157,6 +152,10 @@ DeclareModule App
   Global DPI_Scale.f
   Global consoleFont
   
+  
+  Debug DPI_Scale
+  
+  
   Declare.f MaxF(a.f, b.f)
   
   Global IsDarkModeActiveCached = #False
@@ -165,7 +164,6 @@ DeclareModule App
   Global lightThemeBackgroundColor = RGB(250,250,250)
   Global lightThemeForegroundColor = RGB(0,0,0)
   
-  ;darkThemeBackgroundColor = RGB(255,255,255)
   
   Global themeBackgroundColor = lightThemeBackgroundColor
   Global themeForegroundColor = lightThemeForegroundColor
@@ -524,7 +522,7 @@ EndProcedure
         newH = Round(newH, #PB_Round_Nearest)
         
         SetWindowPos_(GadgetID(Gadget), #Null, newX, newY, newW, newH, flags)
-       ; InvalidateRect_(GadgetID(Gadget), #Null, #False)
+        InvalidateRect_(GadgetID(Gadget), #Null, #False)
       EndIf
     CompilerElse
       ResizeGadget(Gadget, x,y,width,height)
@@ -1642,6 +1640,7 @@ EndProcedure
     CompilerIf #PB_Compiler_OS = #PB_OS_Windows
       Protected bg.l, fg.l
       
+      
       bg = themeBackgroundColor 
       fg = themeForegroundColor 
       Protected parentBrush.i
@@ -1765,6 +1764,7 @@ DeclareModule VerticalTabBar
   
   #PB_Event_RedrawHamburger = #PB_Event_FirstCustomValue
   
+  Declare.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0, openSidebar = #False )
   
   
   Structure VerticalTabBarData
@@ -1793,9 +1793,6 @@ DeclareModule VerticalTabBar
     CurrentAnimationLineWidth.f
     AnimationRunning.i
     ParentsRoundingDeltaX.f 
-    *BeforeToggleCallback
-    *AfterToggleCallback
-
   EndStructure
   
   
@@ -1807,8 +1804,7 @@ DeclareModule VerticalTabBar
   Declare GetWidth(*tabBar.VerticalTabBarData)
   Declare GetContentContainer(*tabBar.VerticalTabBarData)
   Declare RedrawAllTabs(*tabBar.VerticalTabBarData)
-  Declare.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0,*beforeToggleProc = 0,  *afterToggleProc = 0, openSidebar = #False )
-
+  
   
 EndDeclareModule
 
@@ -1997,7 +1993,7 @@ Module VerticalTabBar
     
   EndProcedure
   
-  Procedure.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0,*beforeToggleProc = 0,  *afterToggleProc = 0, openSidebar = #False )
+  Procedure.i Create(window.i, x.i, y.i, sidebarWidth.i, expandedWidth.i, contentWidth.i, height.i, List tabConfigs.TabConfig(),User_DPI_Scale.f=1 , *resizeProc = 0, openSidebar = #False )
     Protected *tabBar.VerticalTabBarData = AllocateMemory(SizeOf(VerticalTabBarData))
     Protected i.i, tabCount.i
     
@@ -2030,6 +2026,8 @@ Module VerticalTabBar
     *tabBar\AnimationRunning = #False
     *tabBar\window = window
     
+    Debug "*tabBar\IsExpanded"
+    Debug *tabBar\IsExpanded
     If *tabBar\IsExpanded
       currentSidebarWidth = *tabBar\SidebarExpandedWidth
       currentContentX =  *tabBar\ContentX + sidebarDifference
@@ -2077,7 +2075,8 @@ Module VerticalTabBar
     Next
     CloseGadgetList()
     CloseGadgetList()
-
+    Debug "currentSidebarWidth"
+    Debug currentSidebarWidth
     ; Create content container
     *tabBar\ContentContainer = ContainerGadget(#PB_Any, x + currentSidebarWidth, y, currentContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
     *tabBar\InnerContentContainer = ContainerGadget(#PB_Any, 0, 0, currentContentWidth, *tabBar\ContentHeight, #PB_Container_BorderLess)
@@ -2087,11 +2086,6 @@ Module VerticalTabBar
     CloseGadgetList()
     
     *tabBar\ResizeCallback = *resizeProc
-    
-    *tabBar\AfterToggleCallback = *afterToggleProc
-    *tabBar\BeforeToggleCallback = *beforeToggleProc
-
-    
     
     ; Draw initial state
     RedrawAllTabs(*tabBar)
@@ -2219,7 +2213,6 @@ Module VerticalTabBar
     If Not externalResize
       Refresh(*tabBar.VerticalTabBarData)
     EndIf 
-    
     tabBarDimensions.TabBarDimensions
     tabBarDimensions\newWidth = newWidth
     tabBarDimensions\newContentX = newContentX
@@ -2233,10 +2226,6 @@ Module VerticalTabBar
   Procedure Toggle(*tabBar.VerticalTabBarData)
     Protected newWidth.i, i.i, newContentX.f, newContentWidth.f
     
-     If *tabBar\BeforeToggleCallback
-      CallFunctionFast(*tabBar\BeforeToggleCallback )
-    EndIf
-    
     ; Start animation BEFORE toggling (Win11 style)
     If Not *tabBar\AnimationRunning
       *tabBar\AnimationRunning = #True
@@ -2245,12 +2234,9 @@ Module VerticalTabBar
     
     *tabBar\IsExpanded = 1 - *tabBar\IsExpanded
     DoResize(*tabBar)
-
+    
     RedrawAllTabs(*tabBar)
     
-    If *tabBar\AfterToggleCallback
-      CallFunctionFast(*tabBar\AfterToggleCallback )
-    EndIf
     
   EndProcedure
   
@@ -2460,7 +2446,7 @@ IncludeFile "modernListElement.pb"
           EventWindow = EventWindow()
           EventGadget = EventGadget()
           If #PB_EventType_LeftClick   = EventType()
-          ;  Debug "LEFTCLICK! "+Str(#PB_EventType_LeftClick)
+            Debug "LEFTCLICK! "+Str(#PB_EventType_LeftClick)
           EndIf 
           If *HandleMainEvent( Event, EventWindow, EventGadget) = 0
             ForEach ManagedWindows()
@@ -2871,6 +2857,8 @@ IncludeFile "modernListElement.pb"
           *Gadgets\FlowWebView= WebViewGadget(#PB_Any,0,0, width, height,#PB_WebView_Debug)
           ;SetGadgetText(*Gadgets\FlowWebView, "https://google.de");"https://reactflow.dev/examples/nodes/intersections")
           
+          Debug "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXRGBToHex(buttonContainerBackground)"
+          Debug RGBToHex(themeBackgroundColor)
           Protected htmlContent.s = "" +
                           ~"<!DOCTYPE html>\n" +
                           ~"<html>\n" +
@@ -2966,7 +2954,10 @@ IncludeFile "modernListElement.pb"
                           ~"</body>\n" +
                           ~"</html>"
 
+          Debug htmlContent
           SetGadgetItemText(*Gadgets\FlowWebView,#PB_WebView_HtmlCode, htmlContent)
+          
+          
           
           
           CloseGadgetList()
@@ -3776,7 +3767,8 @@ IncludeFile "modernListElement.pb"
     
     ExamineDesktops()
     desktopWidth =  DesktopWidth(0)
-
+    Debug "DPI_Scale 1"
+    Debug DPI_Scale
     
     Global buttonContainer
     
@@ -3799,61 +3791,34 @@ IncludeFile "modernListElement.pb"
       EndIf 
     EndProcedure
     
-    Procedure BeforeToggleCallback ()
-      Protected hWnd = WindowID(#WIN_ID)
-      
-      
-    EndProcedure
-    
-    
-    
-    Procedure AfterToggleCallback ()
-      Protected hWnd = WindowID(#WIN_ID)
-      
-      
-    EndProcedure 
     
     Procedure ResizeWindowCallback() 
       
-      If IsZoomed_(WindowID(#WIN_ID))
-        HideGadget(*tabBar\SidebarContainer,#True)
-        HideGadget(*tabBar\ContentContainer,#True)
-      EndIf 
-      
-      
-      RedrawWindow_(WindowID(#WIN_ID), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-      
       Protected windowWidth = WindowWidth(#WIN_ID)
       Protected windowHeight = WindowHeight(#WIN_ID)
-      
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows: 
         SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
         SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
       CompilerEndIf
       Define x = 0, y = 0, width.f = windowWidth - sidebarWidth , height.f = windowHeight - buttonAreaHeight 
-      
-      
       VerticalTabBar::Resize(*tabBar, windowWidth - sidebarWidth, windowHeight ,#True )
       
-      NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)  
+      NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)
+      
       NormalResizeGadget(tabIds(*tabBar\ActiveTabIndex), #PB_Ignore,#PB_Ignore,width,height,*tabBar\ParentsRoundingDeltaX)
       
       
-       If IsZoomed_(WindowID(#WIN_ID))
-        HideGadget(*tabBar\SidebarContainer,#False)
-        HideGadget(*tabBar\ContentContainer,#False)
-      EndIf 
+      
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
         SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
         
-        RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
-        RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
+        ;RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
+        ;RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
         
         RedrawWindow_(WindowID(#WIN_ID), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
       CompilerEndIf 
       
- 
     EndProcedure
     
     Procedure CreateMockIcon(width.i, height.i, bgColor.i, fgColor.i)
@@ -3907,20 +3872,19 @@ IncludeFile "modernListElement.pb"
     EndProcedure 
     
     
-
-    
     Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, height, IsExpanded,*deltaWidth,*parentsRoundingDeltaX)
-      
-            
       parentsRoundingDeltaX.f = PeekF(*parentsRoundingDeltaX)
       deltaWidth.f = PeekF(*deltaWidth)
       
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 0, 0)
-        
       CompilerEndIf
       
-
+      NormalResizeGadget(tabIds(index), #PB_Ignore, #PB_Ignore, width, #PB_Ignore,parentsRoundingDeltaX)
+      Debug "INDEX"
+      Debug  index
+      
+      
       
       
       Select index 
@@ -3935,6 +3899,7 @@ IncludeFile "modernListElement.pb"
       buttonGroupX = (width-30)/2-(85+15+85)/2
       
       If IsExpanded
+        Debug deltaWidth
         buttonGroupX-deltaWidth/2
       EndIf 
       If buttonGroupX < 0
@@ -3943,35 +3908,16 @@ IncludeFile "modernListElement.pb"
       NormalResizeGadget(*Gadgets\BtnAdd, 15+buttonGroupX, #PB_Ignore, #PB_Ignore, #PB_Ignore,parentsRoundingDeltaX)
       NormalResizeGadget(*Gadgets\BtnRemove, 15+buttonGroupX+85+15,#PB_Ignore,#PB_Ignore , #PB_Ignore, parentsRoundingDeltaX)
       
-
-      
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
-        ;SendMessage_(WindowID(#WIN_ID), #WM_SETREDRAW, #True, 0)
-
-         ;RedrawWindow_(WindowID(#WIN_ID), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_INTERNALPAINT)
-        
-        ;  RedrawWindow_(WindowID(#WIN_ID), #Null, #Null, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_ERASE | #RDW_INTERNALPAINT)
-        
+         SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
+        ; RedrawWindow_(GadgetID(tabIds(index)), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW)
       CompilerEndIf
       
-;       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-;         SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
-;         SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
-;         
-;         RedrawWindow_(GadgetID(*tabBar\SidebarContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN) ; Omit #RDW_ERASE if your paint handlers fill the background fully
-;         RedrawWindow_(GadgetID(*tabBar\ContentContainer), #Null, #Null, #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-;         
-;         RedrawWindow_(WindowID(#WIN_ID), #Null, #Null,  #RDW_INVALIDATE | #RDW_ALLCHILDREN|#RDW_UPDATENOW)
-;       CompilerEndIf 
-      
-      
-              ; HideGadget(*list\InnerContainer,#False)
-
     EndProcedure
     
     
     Procedure.i ShowWindow()
+      Debug "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!ShowWindow"
       ShowWindowFadeIn(#WIN_ID)
       ProcedureReturn #WIN_ID
     EndProcedure 
@@ -4000,9 +3946,15 @@ IncludeFile "modernListElement.pb"
     
     
     Procedure HandleButtonEvent(*list.ModernList::ModernListData, content.s, *interfaceData.ModernListElement::GadgetInterface, index ,eventGadget.i, event.i,childIndex, whichGadget = 0)
-          
+           
+      Debug "HandleButtonEvent "+Str(whichGadget)+" XXXXXXXXXXXXXXXXXXXXXXXXXXXXx "+Str(index)
+
       Protected handled = #False
       If event = #PB_EventType_LeftClick And whichGadget = 0
+        Debug "HandleButtonEventYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYyy "+Str(index)
+        Debug *list\DPI_Scale
+        Debug index
+        Debug "Button clicked: Gadget ID " + Str(eventGadget)
         MessageRequester("Button Action", "Button clicked! Gadget ID: " + Str(eventGadget))
         handled = #True
       EndIf
@@ -4039,9 +3991,11 @@ IncludeFile "modernListElement.pb"
     ButtonInterface\AutoResize = #True 
     
     Procedure HandleComboEvent(*list, content.s, *interfaceData.ModernListElement::GadgetInterface, index ,eventGadget.i, event.i,childIndex, whichGadget = 0)
+      Debug "!!!!!!!!!!!!!!!!!!!xxxxxx "+Str(event)
       Protected handled = #False
       If event = #PB_EventType_Change
         Protected selectedText$ = GetGadgetText(eventGadget)
+        Debug "XXXXXComboBox changed: Gadget ID " + Str(eventGadget) + ", Selected: " + selectedText$
         MessageRequester("ComboBox Selection", "Selected option: " + selectedText$)
         handled = #True
       EndIf
@@ -4095,7 +4049,9 @@ IncludeFile "modernListElement.pb"
     
     Procedure HandleStringEvent(*list, content.s, *interfaceData.ModernListElement::GadgetInterface, index ,eventGadget.i, event.i,childIndex, whichGadget = 0)
       Protected handled = #False
+      Debug "!!!!!!!!!!!!!!!"
       If event = #PB_EventType_Change
+        Debug "StringGadget changed: Gadget ID " + Str(eventGadget) + ", Text: " + GetGadgetText(eventGadget)
         MessageRequester("StringGadget Action index: "+Str(index) +" childIndex:"+Str(childIndex), "Text changed To: " + GetGadgetText(eventGadget))
         handled = #True
       EndIf
@@ -4171,14 +4127,20 @@ IncludeFile "modernListElement.pb"
     
     
     
+    
     Procedure.i CreateWindow()
       If Not IsWindow(#WIN_ID)
         ; Create main window with DPI scaling
         If OpenWindow(#WIN_ID, 0, 0, windowWidth , windowHeight , "Monitor - VS Code Style", 
                       #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget|#PB_Window_MaximizeGadget| #PB_Window_SizeGadget | #PB_Window_Invisible)
           
+          Debug "DPI_Scale 2"
+          Debug DPI_Scale
           
-SmartWindowRefresh(#WIN_ID,#True)
+          
+          Debug "DPI_Scale 3"
+          Debug DPI_Scale
+          
           
           SetColors()
           
@@ -4221,7 +4183,7 @@ SmartWindowRefresh(#WIN_ID,#True)
           
           ;Create vertical tab bar
           
-          *tabBar = VerticalTabBar::Create(#WIN_ID, 0, 0, sidebarWidth, sidebarExtendedWidth, windowWidth-sidebarWidth, windowHeight, tabConfigs(),DPI_Scale, @HandleLayout(),@BeforeToggleCallback(),@AfterToggleCallback())
+          *tabBar = VerticalTabBar::Create(#WIN_ID, 0, 0, sidebarWidth, sidebarExtendedWidth, windowWidth-sidebarWidth, windowHeight, tabConfigs(),DPI_Scale, @HandleLayout())
           *monitorTabBar = *tabBar
           
           AddElement(ThemeHandler())
@@ -4261,7 +4223,7 @@ SmartWindowRefresh(#WIN_ID,#True)
           
 
 
-          For i = 0 To 130
+          For i = 0 To 30
           
             AddElement(rows())
           
@@ -4337,7 +4299,7 @@ SmartWindowRefresh(#WIN_ID,#True)
 ;             rows()\Elements()\Width = 150
 ;           Next
           
-           *list = ModernList::CreateList(#WIN_ID, 5, 5, width-10, height-5, 0,6,#True,rows(), @header, 36, DPI_Scale, @ListResizeCallback())
+           *list.ModernList::ModernListData = ModernList::CreateList(#WIN_ID, 5, 5, width-10, height-5, 0,6,#True,rows(), @header, 36, DPI_Scale, @ListResizeCallback())
           
           
           
@@ -4441,10 +4403,6 @@ SmartWindowRefresh(#WIN_ID,#True)
         
         If Not VerticalTabBar::HandleTabBarEvent(*tabBar, Gadget, Event)
           Select Event
-              
-            Case 12345
-              Debug "UNLCOK"
-              
             Case #PB_Event_Gadget          
               Select Gadget
                 Case *Gadgets\BtnChooseColor,  *Gadgets\ContainerColorPreview
@@ -4456,8 +4414,8 @@ SmartWindowRefresh(#WIN_ID,#True)
                   closeWindow = #True 
                 Case *Gadgets\BtnCancel
                   closeWindow = #True 
-              EndSelect          
-
+              EndSelect
+              
             Case #PB_Event_CloseWindow
               ; Ensure animation thread is stopped before closing
               closeWindow = #True 
@@ -4481,7 +4439,7 @@ SmartWindowRefresh(#WIN_ID,#True)
           DeleteObject_(bgBrush)
         EndIf 
       CompilerEndIf
-      ModernList::CleanUp(*list)
+      ModernList::CleanUp()
     EndProcedure 
     
     
@@ -4755,8 +4713,8 @@ SmartWindowRefresh(#WIN_ID,#True)
   WindowManager::CleanupManagedWindows()
   App::CleanupApp() 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 3949
-; FirstLine = 3929
+; CursorPosition = 3896
+; FirstLine = 3883
 ; Folding = ------------------------------------
 ; Optimizer
 ; EnableThread

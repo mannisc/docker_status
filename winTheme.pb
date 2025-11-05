@@ -922,7 +922,6 @@ EndProcedure
 
     If length > 0
       className = LCase(PeekS(@className))
-      Debug  Str(hWnd)+" "+className
       Select className
         Case "purecontainer", "systabcontrol32"
           SetGadgetBackgroundColorByHandle(hWnd, themeBackgroundColor)
@@ -984,7 +983,6 @@ EndProcedure
   
   
   Procedure ApplyThemeHandle(hWnd)
-  
     ApplyThemeToWindowHandle(hWnd)
     EnumChildWindows_(hWnd, @ApplyThemeToWindowChildren(), 0)
     UpdateWindow_(hWnd)   
@@ -994,8 +992,8 @@ EndProcedure
   
 CompilerEndIf
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 926
-; FirstLine = 912
+; CursorPosition = 985
+; FirstLine = 957
 ; Folding = ------
 ; EnableXP
 ; DPIAware
