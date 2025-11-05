@@ -1,0 +1,192 @@
+﻿ ExamineDesktops()
+
+; Constants
+#WindowID = 0
+#GadgetWeb = 1
+Global DPI_Scale.f = DesktopResolutionX()
+
+
+; HTML code with a lis
+html$ = "<html><head><meta charset='utf-8'>" +
+        "<style>" +
+        "html, body { margin:0; padding:0; height:100%; width:100%; font-family:Arial; }" +
+        "body { background-color: #1E90FF; }" +  ; base blue background
+        "ul { list-style: none; padding:0; margin:0; height:100%; display:flex; flex-direction:column; }" +
+        "li { flex:1; display:flex; align-items:center; justify-content:center; color:white; font-weight:bold; }" +
+        "li:nth-child(1) { background-color: rgba(255,255,255,0.1); }" +
+        "li:nth-child(2) { background-color: rgba(255,255,255,0.2); }" +
+        "li:nth-child(3) { background-color: rgba(255,255,255,0.3); }" +
+        "li:nth-child(4) { background-color: rgba(255,255,255,0.4); }" +
+        "</style></head>" +
+        "<body>" +
+        "<ul>" +
+        "<li>Item A</li>" +
+        "<li>Item B</li>" +
+        "<li>Item C</li>" +
+        "<li>Item D</li>" +
+        "</ul>" +
+        "</body></html>"
+
+
+  
+  Procedure WebViewResizeGadget(Gadget, x.f, y.f, width.f, height.f, parentsRoundingDeltaX.f = 0, parentsRoundingDeltaY.f = 0)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    If IsGadget(Gadget)
+      Protected hWnd = GadgetID(Gadget)
+      Protected hParent = GetParent_(hWnd)
+      Protected hWebView = GetWindow_(hWnd, #GW_CHILD) ; Get the actual webview child window
+      
+      Protected flags = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOREDRAW | #SWP_NOCOPYBITS | #SWP_NOOWNERZORDER | #SWP_NOSENDCHANGING
+      Protected currentX.f, currentY.f, currentW.f, currentH.f
+      Protected rect.RECT
+      Protected newX.f, newY.f, newW.f, newH.f
+      
+      ; Get current position and size of the gadget
+      If GetWindowRect_(hWnd, @rect)
+        Protected point.POINT
+        point\x = rect\left
+        point\y = rect\top
+        
+        MapWindowPoints_(#Null, hParent, @point, 2)
+        currentX = point\x
+        currentY = point\y
+        currentW = rect\right - rect\left
+        currentH = rect\bottom - rect\top
+      Else
+        currentX = 0.0
+        currentY = 0.0
+        currentW = 0.0
+        currentH = 0.0
+      EndIf
+      
+      Protected currentRoundingDeltaX.f = 0
+      If x = #PB_Ignore
+        newX = currentX
+        currentRoundingDeltaX = parentsRoundingDeltaX
+      Else
+        newX = x * DPI_Scale
+        If Round(newX, #PB_Round_Nearest) - Round(newX + parentsRoundingDeltaX, #PB_Round_Nearest) = 0
+          currentRoundingDeltaX = parentsRoundingDeltaX
+        EndIf
+        newX + parentsRoundingDeltaX
+      EndIf
+      
+      Protected currentRoundingDeltaY.f = 0
+      If y = #PB_Ignore
+        newY = currentY
+        currentRoundingDeltaY = parentsRoundingDeltaY
+      Else
+        newY = y * DPI_Scale
+        If Round(newY, #PB_Round_Nearest) - Round(newY + parentsRoundingDeltaY, #PB_Round_Nearest) = 0
+          currentRoundingDeltaY = parentsRoundingDeltaY
+        EndIf
+        newY + parentsRoundingDeltaY
+      EndIf
+      
+      If width = #PB_Ignore
+        newW = currentW
+      Else
+        currentRoundingDeltaX = currentRoundingDeltaX + newX - Round(newX, #PB_Round_Nearest)
+        newW = width * DPI_Scale
+        If currentRoundingDeltaX <> 0
+          newW = newW + currentRoundingDeltaX
+        EndIf
+      EndIf
+      
+      If height = #PB_Ignore
+        newH = currentH
+      Else
+        currentRoundingDeltaY = currentRoundingDeltaY + newY - Round(newY, #PB_Round_Nearest)
+        newH = height * DPI_Scale
+        If currentRoundingDeltaY <> 0
+          newH = newH + currentRoundingDeltaY
+        EndIf
+      EndIf
+      
+      newX = Round(newX, #PB_Round_Nearest)
+      newY = Round(newY, #PB_Round_Nearest)
+      newW = Round(newW, #PB_Round_Nearest)
+      newH = Round(newH, #PB_Round_Nearest)
+      
+      ; Resize the container
+      SetWindowPos_(hWnd, #Null, newX, newY, newW, newH, flags)
+      
+      ; Resize the child webview control to fill the container
+      If hWebView
+        Debug "SETWINDOWPOS"
+        Debug newW
+        Debug newH
+        SetWindowPos_(hWebView, #Null, 0, 0, newW, newH, flags)
+        InvalidateRect_(hWebView, #Null, #False)
+        RedrawWindow_(hWebView, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
+
+      EndIf
+      
+      InvalidateRect_(hWnd, #Null, #False)
+              RedrawWindow_(hWnd, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
+
+    EndIf
+  CompilerElse
+    ResizeGadget(Gadget, x, y, width, height)
+  CompilerEndIf
+  ProcedureReturn
+EndProcedure
+  
+  
+Procedure WinCallback(hWnd, uMsg, WParam, LParam) 
+    ; Windows fills the parameter automatically, which we will use in the callback...
+    
+    If uMsg = #WM_SIZE 
+      Select WParam 
+        Case #SIZE_MINIMIZED 
+          Debug "Window was minimized" 
+        Case #SIZE_RESTORED 
+          Debug "Window was restored" 
+        Case #SIZE_MAXIMIZED 
+          Debug "Window was maximized" 
+      EndSelect 
+      
+       ; Get new size
+      
+       w = WindowWidth(#WindowID)
+       h = WindowHeight(#WindowID)
+      ; Resize WebView to fill
+      WebViewResizeGadget(#GadgetWeb, 0, 0, w, h)
+      
+    EndIf 
+
+    ProcedureReturn #PB_ProcessPureBasicEvents 
+  EndProcedure 
+  
+  
+; Create window
+If OpenWindow(#WindowID, 0, 0, 600, 400, "WebView List Example", #PB_Window_SystemMenu | #PB_Window_SizeGadget  | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
+  SetWindowCallback(@WinCallback(), 0) ; set the callback
+
+  ; Create WebView gadget filling the whole window initially
+  WebViewGadget(#GadgetWeb, 0, 0, WindowWidth(#WindowID), WindowHeight(#WindowID))
+  
+  ; Load the HTML content
+  SetGadgetItemText(#GadgetWeb, #PB_WebView_HtmlCode, html$)
+  
+  ; Main event loop
+  Repeat
+    Event = WaitWindowEvent()
+    
+    ; Handle window resize event
+    If Event = #PB_Event_SizeWindow
+     
+    EndIf
+    
+  Until Event = #PB_Event_CloseWindow
+EndIf
+
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 118
+; FirstLine = 88
+; Folding = -
+; Optimizer
+; EnableXP
+; DPIAware
+; Executable = ..\..\test.exe
+; DisableDebugger
