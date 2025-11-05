@@ -2220,6 +2220,9 @@ Module VerticalTabBar
       Refresh(*tabBar.VerticalTabBarData)
     EndIf 
     
+
+    
+    
     tabBarDimensions.TabBarDimensions
     tabBarDimensions\newWidth = newWidth
     tabBarDimensions\newContentX = newContentX
@@ -3814,22 +3817,21 @@ IncludeFile "modernListElement.pb"
     EndProcedure 
     
     Procedure ResizeWindowCallback() 
+       Protected windowWidth = WindowWidth(#WIN_ID)
+      Protected windowHeight = WindowHeight(#WIN_ID)
       
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows   
+
       If IsZoomed_(WindowID(#WIN_ID))
         HideGadget(*tabBar\SidebarContainer,#True)
         HideGadget(*tabBar\ContentContainer,#True)
       EndIf 
-      
-      
+
       RedrawWindow_(WindowID(#WIN_ID), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-      
-      Protected windowWidth = WindowWidth(#WIN_ID)
-      Protected windowHeight = WindowHeight(#WIN_ID)
-      
-      CompilerIf #PB_Compiler_OS = #PB_OS_Windows: 
         SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #False, 0)
         SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #False, 0)
       CompilerEndIf
+      
       Define x = 0, y = 0, width.f = windowWidth - sidebarWidth , height.f = windowHeight - buttonAreaHeight 
       
       
@@ -3838,12 +3840,12 @@ IncludeFile "modernListElement.pb"
       NormalResizeGadget(buttonContainer, #PB_Ignore, height, width+5, #PB_Ignore,*tabBar\ParentsRoundingDeltaX)  
       NormalResizeGadget(tabIds(*tabBar\ActiveTabIndex), #PB_Ignore,#PB_Ignore,width,height,*tabBar\ParentsRoundingDeltaX)
       
-      
+            CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+
        If IsZoomed_(WindowID(#WIN_ID))
         HideGadget(*tabBar\SidebarContainer,#False)
         HideGadget(*tabBar\ContentContainer,#False)
       EndIf 
-      CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         SendMessage_(GadgetID(*tabBar\SidebarContainer), #WM_SETREDRAW, #True, 0)
         SendMessage_(GadgetID(*tabBar\ContentContainer), #WM_SETREDRAW, #True, 0)
         
@@ -3905,9 +3907,47 @@ IncludeFile "modernListElement.pb"
         SetProp_(GadgetID(gadget), "BackgroundBrush", hBrush) 
       CompilerEndIf 
     EndProcedure 
-    
-    
+    Structure FreezeData
+  nsView.i
+  nsImage.i
+  nsImageView.i
+EndStructure
 
+Global freeze.FreezeData
+
+Procedure BeginFreeze(Window)
+  Protected nsView = CocoaMessage(0, WindowID(Window), "contentView")
+  Protected frame.NSRect
+  CocoaMessage(@frame, nsView, "frame")
+
+  ; Create an NSImage from the view's current contents
+  Protected nsImage = CocoaMessage(0, CocoaMessage(0, 0, "NSImage alloc"), "initWithSize:", @frame)
+  Protected rep = CocoaMessage(0, CocoaMessage(0, 0, "NSBitmapImageRep alloc"), "initWithData:",
+                               CocoaMessage(0, nsView, "dataWithPDFInsideRect:", @frame))
+  CocoaMessage(0, nsImage, "addRepresentation:", rep)
+
+  ; Overlay the snapshot on top of everything
+  Protected nsImageView = CocoaMessage(0, CocoaMessage(0, 0, "NSImageView alloc"), "initWithFrame:", @frame)
+  CocoaMessage(0, nsImageView, "setImage:", nsImage)
+  CocoaMessage(0, nsView, "addSubview:", nsImageView)
+
+  ; Store for later cleanup
+  freeze\nsView = nsView
+  freeze\nsImage = nsImage
+  freeze\nsImageView = nsImageView
+EndProcedure
+
+Procedure EndFreeze(Window)
+  If freeze\nsImageView
+    Debug "&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&"
+    CocoaMessage(0, freeze\nsImageView, "removeFromSuperview")
+    CocoaMessage(0, freeze\nsImageView, "release")
+    CocoaMessage(0, freeze\nsImage, "release")
+    freeze\nsImageView = 0
+    freeze\nsImage = 0
+  EndIf
+  CocoaMessage(0, WindowID(Window), "display")
+EndProcedure
     
     Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, height, IsExpanded,*deltaWidth,*parentsRoundingDeltaX)
       
@@ -3917,7 +3957,10 @@ IncludeFile "modernListElement.pb"
       
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 0, 0)
-        
+      CompilerElseIf #PB_Compiler_OS = #PB_OS_MacOS
+         ;CocoaMessage(0, GadgetID(*tabBar\ContentContainer), "setNeedsDisplay:", #NO)
+;         CocoaMessage(0, GadgetID(*list\MainContainer), "setHidden:", #YES)
+BeginFreeze(#WIN_ID)
       CompilerEndIf
       
 
@@ -3944,7 +3987,8 @@ IncludeFile "modernListElement.pb"
       NormalResizeGadget(*Gadgets\BtnRemove, 15+buttonGroupX+85+15,#PB_Ignore,#PB_Ignore , #PB_Ignore, parentsRoundingDeltaX)
       
 
-      
+            CocoaMessage(0, WindowID(#WIN_ID), "display")
+
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
         ;SendMessage_(WindowID(#WIN_ID), #WM_SETREDRAW, #True, 0)
@@ -3952,7 +3996,11 @@ IncludeFile "modernListElement.pb"
          ;RedrawWindow_(WindowID(#WIN_ID), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_INTERNALPAINT)
         
         ;  RedrawWindow_(WindowID(#WIN_ID), #Null, #Null, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_ERASE | #RDW_INTERNALPAINT)
-        
+       CompilerElseIf #PB_Compiler_OS = #PB_OS_MacOS
+;        CocoaMessage(0, GadgetID(*list\MainContainer), "setHidden:", #NO)
+ ;CocoaMessage(0, GadgetID(*tabBar\ContentContainer), "setNeedsDisplay:", #YES)
+ ;CocoaMessage(0, GadgetID(*tabBar\ContentContainer), "displayIfNeeded")
+        EndFreeze(#WIN_ID)
       CompilerEndIf
       
 ;       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
@@ -4048,23 +4096,31 @@ IncludeFile "modernListElement.pb"
       ProcedureReturn handled
     EndProcedure
     
-    
+              CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+
     #WM_MOUSEWHEEL = $020A
     
     Global oldProc
     Procedure ComboSubclass(hwnd, msg, wParam, lParam)
+
       Select msg
         Case #WM_MOUSEWHEEL
-          ; Forward to parent instead of scrolling the combo
+            
+          ; Forward to parent instead of scrolling the combo 
           SendMessage_(GetParent_(hwnd), msg, wParam, lParam)
           ProcedureReturn 0 ; don't handle here
       EndSelect
       ProcedureReturn CallWindowProc_(oldProc, hwnd, msg, wParam, lParam)
     EndProcedure
+              CompilerEndIf 
+
     Procedure CreateComboBoxGadget(parentGadget.i, content.s, x.i, y.i, width.i, height.i, isContainerEvent=#False)
       Protected g.i = ComboBoxGadget(#PB_Any, x, y, width, height)
+                CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+
       oldProc = SetWindowLongPtr_(GadgetID(g), #GWL_WNDPROC, @ComboSubclass())
-      
+                    CompilerEndIf 
+
       If IsGadget(g)
         AddGadgetItem(g, -1, "Option 1")
         AddGadgetItem(g, -1, "Option 2")
@@ -4178,7 +4234,7 @@ IncludeFile "modernListElement.pb"
                       #PB_Window_SystemMenu | #PB_Window_ScreenCentered | #PB_Window_MinimizeGadget|#PB_Window_MaximizeGadget| #PB_Window_SizeGadget | #PB_Window_Invisible)
           
           
-SmartWindowRefresh(#WIN_ID,#True)
+;SmartWindowRefresh(#WIN_ID,#True)
           
           SetColors()
           
@@ -4754,10 +4810,10 @@ SmartWindowRefresh(#WIN_ID,#True)
   
   WindowManager::CleanupManagedWindows()
   App::CleanupApp() 
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 3949
-; FirstLine = 3929
-; Folding = ------------------------------------
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 3941
+; FirstLine = 3923
+; Folding = -------------------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP

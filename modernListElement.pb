@@ -54,9 +54,9 @@ DeclareModule ModernListElement
 EndDeclareModule
 
 Module ModernListElement
-
-
-
+  
+  
+  
   Procedure CreateElement(rowGadget.i, x.i, y.i,marginTop.i, width.i, height.i, type.i, content.s, elementIndex.i, *interface.GadgetInterface=0, autoResize=#False)
     
     Protected containerGadget.i = 0
@@ -67,7 +67,7 @@ Module ModernListElement
       containerGadget = ContainerGadget(#PB_Any, x, y+marginTop, width, height)
       *childGadgets = *interface\Create(containerGadget,content, 0, 0, width, height-marginTop)
       CloseGadgetList()
-
+      
       gadgetToStore = containerGadget
     EndIf
     
@@ -542,16 +542,20 @@ Module ModernList
     
     
     Procedure RemoveBrush(hBrush)
-      If hBrush = 0
-        ProcedureReturn
-      EndIf 
-      ForEach brushes()
-        If hBrush = brushes()
-          DeleteObject_(hBrush)
-          DeleteElement(brushes())
-          Break
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+        
+        If hBrush = 0
+          ProcedureReturn
         EndIf 
-      Next 
+        ForEach brushes()
+          If hBrush = brushes()
+            DeleteObject_(hBrush)
+            DeleteElement(brushes())
+            Break
+          EndIf 
+        Next 
+      CompilerEndIf
+      
     EndProcedure
     
     Procedure SetGadgetBackgoundColor(gadget, bg)
@@ -755,8 +759,9 @@ Module ModernList
                 SetGadgetBackgoundColor(ElementMap()\Gadget,lightThemeBackgroundColor)
               EndIf
             EndIf  
-            RedrawWindow_(GadgetID(ElementMap()\Gadget), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
-            
+            CompilerIf #PB_Compiler_OS = #PB_OS_Windows     
+              RedrawWindow_(GadgetID(ElementMap()\Gadget), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+            CompilerEndIf
           EndIf 
         Next  
       EndIf
@@ -1065,330 +1070,330 @@ Module ModernList
     EndProcedure
     
     
-;##################################
-
-
-; Structure to hold deferred resize operations
-Structure DeferredResize
-  Gadget.i
-  x.f
-  y.f
-  width.f
-  height.f
-  parentsRoundingDeltaX.f
-  parentsRoundingDeltaY.f
-EndStructure
-
-
-Procedure BatchResizeGadgets(List resizeOps.DeferredResize())
-  CompilerIf  #PB_Compiler_OS = #PB_OS_Windows
-    Protected count.i = ListSize(resizeOps())
-    If count = 0
-      ProcedureReturn
-    EndIf
+    ;##################################
     
-    ; Group gadgets by parent window
-    NewMap parentGroups.i()
-    NewList parentHandles.i()
     
-    ; First pass: group by parent - SIMPLIFIED
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        Protected hParent = GetParent_(GadgetID(resizeOps()\Gadget))
-        Protected parentKey.s = Str(hParent)
+    ; Structure to hold deferred resize operations
+    Structure DeferredResize
+      Gadget.i
+      x.f
+      y.f
+      width.f
+      height.f
+      parentsRoundingDeltaX.f
+      parentsRoundingDeltaY.f
+    EndStructure
+    
+    
+    Procedure BatchResizeGadgets(List resizeOps.DeferredResize())
+      CompilerIf  #PB_Compiler_OS = #PB_OS_Windows
+        Protected count.i = ListSize(resizeOps())
+        If count = 0
+          ProcedureReturn
+        EndIf
         
-        If FindMapElement(parentGroups(), parentKey)
-          parentGroups() + 1
-        Else
-          parentGroups(parentKey) = 1
-          AddElement(parentHandles())
-          parentHandles() = hParent
-        EndIf
-      EndIf
-    Next
-    
-    ; Disable redrawing for all parents
-    ForEach parentHandles()
-      SendMessage_(parentHandles(), #WM_SETREDRAW, 0, 0)
-    Next
-    
-    ; Process each parent group
-    ForEach parentGroups()
-      Protected parentHandle = Val(MapKey(parentGroups()))
-      Protected groupCount = parentGroups()
-      
-      If groupCount = 0
-        Continue
-      EndIf
-      
-      Protected hDWP = BeginDeferWindowPos_(groupCount)
-      If hDWP = 0
-        Continue
-      EndIf
-      
-      ; Process all gadgets with this parent - OPTIMIZED
-      ForEach resizeOps()
-        If IsGadget(resizeOps()\Gadget)
-          Protected hWnd = GadgetID(resizeOps()\Gadget)
-          hParent = GetParent_(hWnd)
-          
-          If hParent <> parentHandle
-            Continue
-          EndIf
-          
-          ; SIMPLIFIED: Just use the pre-calculated values directly
-          Protected newX.i, newY.i, newW.i, newH.i
-          
-          ; Use current position if #PB_Ignore
-          If resizeOps()\x = #PB_Ignore
-            Protected rect.RECT
-            GetWindowRect_(hWnd, @rect)
-            Protected pt.POINT
-            pt\x = rect\left
-            pt\y = rect\top
-            MapWindowPoints_(#Null, hParent, @pt, 1)
-            newX = pt\x
-          Else
-            newX = Round(resizeOps()\x * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          If resizeOps()\y = #PB_Ignore
-            If resizeOps()\x = #PB_Ignore  ; Already got rect
-              newY = pt\y
-            Else
-              GetWindowRect_(hWnd, @rect)
-              pt\x = rect\left
-              pt\y = rect\top
-              MapWindowPoints_(#Null, hParent, @pt, 1)
-              newY = pt\y
-            EndIf
-          Else
-            newY = Round(resizeOps()\y * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          If resizeOps()\width = #PB_Ignore
-            If resizeOps()\x <> #PB_Ignore Or resizeOps()\y <> #PB_Ignore
-              GetWindowRect_(hWnd, @rect)
-            EndIf
-            newW = rect\right - rect\left
-          Else
-            newW = Round(resizeOps()\width * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          If resizeOps()\height = #PB_Ignore
-            If resizeOps()\x <> #PB_Ignore Or resizeOps()\y <> #PB_Ignore Or resizeOps()\width <> #PB_Ignore
-              GetWindowRect_(hWnd, @rect)
-            EndIf
-            newH = rect\bottom - rect\top
-          Else
-            newH = Round(resizeOps()\height * DPI_Scale, #PB_Round_Nearest)
-          EndIf
-          
-          ; Minimal flags for speed
-          Protected flags.i = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOOWNERZORDER | #SWP_NOCOPYBITS
-          hDWP = DeferWindowPos_(hDWP, hWnd, #Null, newX, newY, newW, newH, flags)
-          
-          If hDWP = 0
-            Break
-          EndIf
-        EndIf
-      Next
-      
-      If hDWP <> 0
-        EndDeferWindowPos_(hDWP)
-      EndIf
-    Next
-    
-    ; Re-enable and redraw all parents - ONE operation per parent
-    ForEach parentHandles()
-      SendMessage_(parentHandles(), #WM_SETREDRAW, 1, 0)
-      InvalidateRect_(parentHandles(), #Null, #True)
-    Next
-    
-    ; Force immediate update
-    ForEach parentHandles()
-      UpdateWindow_(parentHandles())
-    Next
-    
-    FreeList(parentHandles())
-  
-  CompilerElse
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        ResizeGadget(resizeOps()\Gadget, resizeOps()\x, resizeOps()\y, 
-                    resizeOps()\width, resizeOps()\height)
-      EndIf
-    Next
-  CompilerEndIf
-EndProcedure
-
-
-Procedure BatchResizeGadgetsX(List resizeOps.DeferredResize())
-  CompilerIf  #PB_Compiler_OS = #PB_OS_Windows
-    Protected count.i = ListSize(resizeOps())
-    If count = 0
-      ProcedureReturn
-    EndIf
-    
-    ; Group gadgets by parent window
-    NewMap parentGroups.i()
-    NewList parentHandles.i()
-    
-    ; First pass: group by parent
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        Protected hWnd = GadgetID(resizeOps()\Gadget)
-        Protected hParent = GetParent_(hWnd)
-        Protected parentKey.s = Str(hParent)
+        ; Group gadgets by parent window
+        NewMap parentGroups.i()
+        NewList parentHandles.i()
         
-        If FindMapElement(parentGroups(), parentKey)
-          parentGroups() + 1
-        Else
-          parentGroups(parentKey) = 1
-          AddElement(parentHandles())
-          parentHandles() = hParent
-        EndIf
-      EndIf
-    Next
-    
-    ; Disable redrawing for all parents
-;     ForEach parentHandles()
-;       SendMessage_(parentHandles(), #WM_SETREDRAW, 0, 0)
-;     Next
-    
-    ; Process each parent group
-    ForEach parentGroups()
-      Protected parentHandle = Val(MapKey(parentGroups()))
-      Protected groupCount = parentGroups()
-      
-      If groupCount = 0
-        Continue
-      EndIf
-      
-      Protected hDWP = BeginDeferWindowPos_(groupCount)
-      If hDWP = 0
-        Continue
-      EndIf
-      
-      ; Process all gadgets with this parent
-      ForEach resizeOps()
-        If IsGadget(resizeOps()\Gadget)
-          hWnd = GadgetID(resizeOps()\Gadget)
-          hParent = GetParent_(hWnd)
-          
-          If hParent <> parentHandle
-            Continue
-          EndIf
-          
-          Protected currentX.f, currentY.f, currentW.f, currentH.f
-          Protected rect.RECT
-          Protected newX.f, newY.f, newW.f, newH.f
-          
-          If GetWindowRect_(hWnd, @rect)
-            Protected point.POINT
-            point\x = rect\left
-            point\y = rect\top
+        ; First pass: group by parent - SIMPLIFIED
+        ForEach resizeOps()
+          If IsGadget(resizeOps()\Gadget)
+            Protected hParent = GetParent_(GadgetID(resizeOps()\Gadget))
+            Protected parentKey.s = Str(hParent)
             
-            MapWindowPoints_(#Null, hParent, @point, 2)
-            currentX = point\x
-            currentY = point\y
-            currentW = rect\right - rect\left
-            currentH = rect\bottom - rect\top
-          Else
-            currentX = 0.0
-            currentY = 0.0
-            currentW = 0.0
-            currentH = 0.0
-          EndIf
-          
-          Protected currentRoundingDeltaX.f = 0
-          Protected currentRoundingDeltaY.f = 0
-          
-          If resizeOps()\x = #PB_Ignore
-            newX = currentX
-            currentRoundingDeltaX = resizeOps()\parentsRoundingDeltaX
-          Else
-            newX = resizeOps()\x * DPI_Scale
-            If Round(newX, #PB_Round_Nearest) - Round(newX + resizeOps()\parentsRoundingDeltaX, #PB_Round_Nearest) = 0
-              currentRoundingDeltaX = resizeOps()\parentsRoundingDeltaX
-            EndIf
-            newX + resizeOps()\parentsRoundingDeltaX
-          EndIf
-          
-          If resizeOps()\y = #PB_Ignore
-            newY = currentY
-            currentRoundingDeltaY = resizeOps()\parentsRoundingDeltaY
-          Else
-            newY = resizeOps()\y * DPI_Scale
-            If Round(newY, #PB_Round_Nearest) - Round(newY + resizeOps()\parentsRoundingDeltaY, #PB_Round_Nearest) = 0
-              currentRoundingDeltaY = resizeOps()\parentsRoundingDeltaY
-            EndIf
-            newY + resizeOps()\parentsRoundingDeltaY
-          EndIf
-          
-          If resizeOps()\width = #PB_Ignore
-            newW = currentW
-          Else
-            currentRoundingDeltaX = currentRoundingDeltaX + newX - Round(newX, #PB_Round_Nearest)
-            newW = resizeOps()\width * DPI_Scale
-            If currentRoundingDeltaX <> 0
-              newW = newW + currentRoundingDeltaX
+            If FindMapElement(parentGroups(), parentKey)
+              parentGroups() + 1
+            Else
+              parentGroups(parentKey) = 1
+              AddElement(parentHandles())
+              parentHandles() = hParent
             EndIf
           EndIf
+        Next
+        
+        ; Disable redrawing for all parents
+        ForEach parentHandles()
+          SendMessage_(parentHandles(), #WM_SETREDRAW, 0, 0)
+        Next
+        
+        ; Process each parent group
+        ForEach parentGroups()
+          Protected parentHandle = Val(MapKey(parentGroups()))
+          Protected groupCount = parentGroups()
           
-          If resizeOps()\height = #PB_Ignore
-            newH = currentH
-          Else
-            currentRoundingDeltaY = currentRoundingDeltaY + newY - Round(newY, #PB_Round_Nearest)
-            newH = resizeOps()\height * DPI_Scale
-            If currentRoundingDeltaY <> 0
-              newH = newH + currentRoundingDeltaY
-            EndIf
+          If groupCount = 0
+            Continue
           EndIf
           
-          newX = Round(newX, #PB_Round_Nearest)
-          newY = Round(newY, #PB_Round_Nearest)
-          newW = Round(newW, #PB_Round_Nearest)
-          newH = Round(newH, #PB_Round_Nearest)
-          
-          Protected flags.i = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOOWNERZORDER | #SWP_NOCOPYBITS
-          hDWP = DeferWindowPos_(hDWP, hWnd, #Null, newX, newY, newW, newH, flags)
-          
+          Protected hDWP = BeginDeferWindowPos_(groupCount)
           If hDWP = 0
-            Break
+            Continue
           EndIf
+          
+          ; Process all gadgets with this parent - OPTIMIZED
+          ForEach resizeOps()
+            If IsGadget(resizeOps()\Gadget)
+              Protected hWnd = GadgetID(resizeOps()\Gadget)
+              hParent = GetParent_(hWnd)
+              
+              If hParent <> parentHandle
+                Continue
+              EndIf
+              
+              ; SIMPLIFIED: Just use the pre-calculated values directly
+              Protected newX.i, newY.i, newW.i, newH.i
+              
+              ; Use current position if #PB_Ignore
+              If resizeOps()\x = #PB_Ignore
+                Protected rect.RECT
+                GetWindowRect_(hWnd, @rect)
+                Protected pt.POINT
+                pt\x = rect\left
+                pt\y = rect\top
+                MapWindowPoints_(#Null, hParent, @pt, 1)
+                newX = pt\x
+              Else
+                newX = Round(resizeOps()\x * DPI_Scale, #PB_Round_Nearest)
+              EndIf
+              
+              If resizeOps()\y = #PB_Ignore
+                If resizeOps()\x = #PB_Ignore  ; Already got rect
+                  newY = pt\y
+                Else
+                  GetWindowRect_(hWnd, @rect)
+                  pt\x = rect\left
+                  pt\y = rect\top
+                  MapWindowPoints_(#Null, hParent, @pt, 1)
+                  newY = pt\y
+                EndIf
+              Else
+                newY = Round(resizeOps()\y * DPI_Scale, #PB_Round_Nearest)
+              EndIf
+              
+              If resizeOps()\width = #PB_Ignore
+                If resizeOps()\x <> #PB_Ignore Or resizeOps()\y <> #PB_Ignore
+                  GetWindowRect_(hWnd, @rect)
+                EndIf
+                newW = rect\right - rect\left
+              Else
+                newW = Round(resizeOps()\width * DPI_Scale, #PB_Round_Nearest)
+              EndIf
+              
+              If resizeOps()\height = #PB_Ignore
+                If resizeOps()\x <> #PB_Ignore Or resizeOps()\y <> #PB_Ignore Or resizeOps()\width <> #PB_Ignore
+                  GetWindowRect_(hWnd, @rect)
+                EndIf
+                newH = rect\bottom - rect\top
+              Else
+                newH = Round(resizeOps()\height * DPI_Scale, #PB_Round_Nearest)
+              EndIf
+              
+              ; Minimal flags for speed
+              Protected flags.i = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOOWNERZORDER | #SWP_NOCOPYBITS
+              hDWP = DeferWindowPos_(hDWP, hWnd, #Null, newX, newY, newW, newH, flags)
+              
+              If hDWP = 0
+                Break
+              EndIf
+            EndIf
+          Next
+          
+          If hDWP <> 0
+            EndDeferWindowPos_(hDWP)
+          EndIf
+        Next
+        
+        ; Re-enable and redraw all parents - ONE operation per parent
+        ForEach parentHandles()
+          SendMessage_(parentHandles(), #WM_SETREDRAW, 1, 0)
+          InvalidateRect_(parentHandles(), #Null, #True)
+        Next
+        
+        ; Force immediate update
+        ForEach parentHandles()
+          UpdateWindow_(parentHandles())
+        Next
+        
+        FreeList(parentHandles())
+        
+      CompilerElse
+        ForEach resizeOps()
+          If IsGadget(resizeOps()\Gadget)
+            ResizeGadget(resizeOps()\Gadget, resizeOps()\x, resizeOps()\y, 
+                         resizeOps()\width, resizeOps()\height)
+          EndIf
+        Next
+      CompilerEndIf
+    EndProcedure
+    
+    
+    Procedure BatchResizeGadgetsX(List resizeOps.DeferredResize())
+      CompilerIf  #PB_Compiler_OS = #PB_OS_Windows
+        Protected count.i = ListSize(resizeOps())
+        If count = 0
+          ProcedureReturn
         EndIf
-      Next
-      
-      If hDWP <> 0
-        EndDeferWindowPos_(hDWP)
-      EndIf
-    Next
+        
+        ; Group gadgets by parent window
+        NewMap parentGroups.i()
+        NewList parentHandles.i()
+        
+        ; First pass: group by parent
+        ForEach resizeOps()
+          If IsGadget(resizeOps()\Gadget)
+            Protected hWnd = GadgetID(resizeOps()\Gadget)
+            Protected hParent = GetParent_(hWnd)
+            Protected parentKey.s = Str(hParent)
+            
+            If FindMapElement(parentGroups(), parentKey)
+              parentGroups() + 1
+            Else
+              parentGroups(parentKey) = 1
+              AddElement(parentHandles())
+              parentHandles() = hParent
+            EndIf
+          EndIf
+        Next
+        
+        ; Disable redrawing for all parents
+        ;     ForEach parentHandles()
+        ;       SendMessage_(parentHandles(), #WM_SETREDRAW, 0, 0)
+        ;     Next
+        
+        ; Process each parent group
+        ForEach parentGroups()
+          Protected parentHandle = Val(MapKey(parentGroups()))
+          Protected groupCount = parentGroups()
+          
+          If groupCount = 0
+            Continue
+          EndIf
+          
+          Protected hDWP = BeginDeferWindowPos_(groupCount)
+          If hDWP = 0
+            Continue
+          EndIf
+          
+          ; Process all gadgets with this parent
+          ForEach resizeOps()
+            If IsGadget(resizeOps()\Gadget)
+              hWnd = GadgetID(resizeOps()\Gadget)
+              hParent = GetParent_(hWnd)
+              
+              If hParent <> parentHandle
+                Continue
+              EndIf
+              
+              Protected currentX.f, currentY.f, currentW.f, currentH.f
+              Protected rect.RECT
+              Protected newX.f, newY.f, newW.f, newH.f
+              
+              If GetWindowRect_(hWnd, @rect)
+                Protected point.POINT
+                point\x = rect\left
+                point\y = rect\top
+                
+                MapWindowPoints_(#Null, hParent, @point, 2)
+                currentX = point\x
+                currentY = point\y
+                currentW = rect\right - rect\left
+                currentH = rect\bottom - rect\top
+              Else
+                currentX = 0.0
+                currentY = 0.0
+                currentW = 0.0
+                currentH = 0.0
+              EndIf
+              
+              Protected currentRoundingDeltaX.f = 0
+              Protected currentRoundingDeltaY.f = 0
+              
+              If resizeOps()\x = #PB_Ignore
+                newX = currentX
+                currentRoundingDeltaX = resizeOps()\parentsRoundingDeltaX
+              Else
+                newX = resizeOps()\x * DPI_Scale
+                If Round(newX, #PB_Round_Nearest) - Round(newX + resizeOps()\parentsRoundingDeltaX, #PB_Round_Nearest) = 0
+                  currentRoundingDeltaX = resizeOps()\parentsRoundingDeltaX
+                EndIf
+                newX + resizeOps()\parentsRoundingDeltaX
+              EndIf
+              
+              If resizeOps()\y = #PB_Ignore
+                newY = currentY
+                currentRoundingDeltaY = resizeOps()\parentsRoundingDeltaY
+              Else
+                newY = resizeOps()\y * DPI_Scale
+                If Round(newY, #PB_Round_Nearest) - Round(newY + resizeOps()\parentsRoundingDeltaY, #PB_Round_Nearest) = 0
+                  currentRoundingDeltaY = resizeOps()\parentsRoundingDeltaY
+                EndIf
+                newY + resizeOps()\parentsRoundingDeltaY
+              EndIf
+              
+              If resizeOps()\width = #PB_Ignore
+                newW = currentW
+              Else
+                currentRoundingDeltaX = currentRoundingDeltaX + newX - Round(newX, #PB_Round_Nearest)
+                newW = resizeOps()\width * DPI_Scale
+                If currentRoundingDeltaX <> 0
+                  newW = newW + currentRoundingDeltaX
+                EndIf
+              EndIf
+              
+              If resizeOps()\height = #PB_Ignore
+                newH = currentH
+              Else
+                currentRoundingDeltaY = currentRoundingDeltaY + newY - Round(newY, #PB_Round_Nearest)
+                newH = resizeOps()\height * DPI_Scale
+                If currentRoundingDeltaY <> 0
+                  newH = newH + currentRoundingDeltaY
+                EndIf
+              EndIf
+              
+              newX = Round(newX, #PB_Round_Nearest)
+              newY = Round(newY, #PB_Round_Nearest)
+              newW = Round(newW, #PB_Round_Nearest)
+              newH = Round(newH, #PB_Round_Nearest)
+              
+              Protected flags.i = #SWP_NOACTIVATE | #SWP_NOZORDER | #SWP_NOOWNERZORDER | #SWP_NOCOPYBITS
+              hDWP = DeferWindowPos_(hDWP, hWnd, #Null, newX, newY, newW, newH, flags)
+              
+              If hDWP = 0
+                Break
+              EndIf
+            EndIf
+          Next
+          
+          If hDWP <> 0
+            EndDeferWindowPos_(hDWP)
+          EndIf
+        Next
+        
+        ; Re-enable and redraw all parents
+        ;     ForEach parentHandles()
+        ;       SendMessage_(parentHandles(), #WM_SETREDRAW, 1, 0)
+        ;       RedrawWindow_(parentHandles(), #Null, #Null, 
+        ;                     #RDW_ERASE | #RDW_FRAME | #RDW_INVALIDATE | #RDW_ALLCHILDREN)
+        ;     Next
+        
+        FreeList(parentHandles())
+        
+      CompilerElse
+        ForEach resizeOps()
+          If IsGadget(resizeOps()\Gadget)
+            ResizeGadget(resizeOps()\Gadget, resizeOps()\x, resizeOps()\y, 
+                         resizeOps()\width, resizeOps()\height)
+          EndIf
+        Next
+      CompilerEndIf
+    EndProcedure
     
-    ; Re-enable and redraw all parents
-;     ForEach parentHandles()
-;       SendMessage_(parentHandles(), #WM_SETREDRAW, 1, 0)
-;       RedrawWindow_(parentHandles(), #Null, #Null, 
-;                     #RDW_ERASE | #RDW_FRAME | #RDW_INVALIDATE | #RDW_ALLCHILDREN)
-;     Next
     
-    FreeList(parentHandles())
-  
-  CompilerElse
-    ForEach resizeOps()
-      If IsGadget(resizeOps()\Gadget)
-        ResizeGadget(resizeOps()\Gadget, resizeOps()\x, resizeOps()\y, 
-                    resizeOps()\width, resizeOps()\height)
-      EndIf
-    Next
-  CompilerEndIf
-EndProcedure
-
-
-
-;#########################end
     
-
+    ;#########################end
+    
+    
     
     ; =============================================================================
     ; Core resize procedure (internal use)
@@ -1555,7 +1560,7 @@ EndProcedure
       EndIf
       
       *list\IsResizing = #True
-
+      
       ; Disable redrawing during resize for better performance (Windows only)
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         
@@ -1619,10 +1624,10 @@ EndProcedure
       
       RedrawAll(*list, #True)
       
-
-        
       
-
+      
+      
+      
       ; Force scrollbar update (Windows only)
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         Protected hWnd.i = GadgetID(*list\ScrollArea)
@@ -1805,27 +1810,30 @@ EndProcedure
       ;                 Next 
       ;               EndIf 
       ;             Next  
-      SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
-      
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows     
+        
+        SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
+      CompilerEndIf
       DoResize(*list,#True)
       RedrawAll(*list, #False,#False,#True,*list\CurrentFirstVisibleListElement,*list\CurrentLastVisibleListElement)
       
       GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
       
-      
-      SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
-      ;             ForEach ModernListElement::ElementMap()
-      ;               If ElementMap()\ChildGadgets <> 0
-      ;                 ForEach ElementMap()\ChildGadgets\Gadgets()
-      ;                   If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
-      ;                     SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
-      ;                   EndIf 
-      ;                 Next 
-      ;               EndIf 
-      ;             Next  
-      RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
-      ;RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows     
+        
+        SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
+        ;             ForEach ModernListElement::ElementMap()
+        ;               If ElementMap()\ChildGadgets <> 0
+        ;                 ForEach ElementMap()\ChildGadgets\Gadgets()
+        ;                   If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
+        ;                     SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
+        ;                   EndIf 
+        ;                 Next 
+        ;               EndIf 
+        ;             Next  
+        RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
+        ;RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
+        
         Protected hWnd.i = GadgetID(*list\ScrollArea)
         If hWnd
           SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
@@ -1866,7 +1874,9 @@ EndProcedure
         If scrollSpeed<>0
           UpdateHoverState(*list.ModernListData, #True )
         EndIf 
-        SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
+        CompilerIf #PB_Compiler_OS = #PB_OS_Windows   
+          SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #False, 0)
+        CompilerEndIf
         
         Protected oldFirstVisible.i = 0
         Protected oldLastVisible.i = ListSize(*list\Rows()) - 1
@@ -1883,28 +1893,28 @@ EndProcedure
         GetVisibleRowRange(*list, @*list\CurrentFirstVisibleListElement, @*list\CurrentLastVisibleListElement)
         
         
-        
-        SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
-        ;         ForEach ModernListElement::ElementMap()
-        ;           If ElementMap()\ChildGadgets <> 0
-        ;             ForEach ElementMap()\ChildGadgets\Gadgets()
-        ;               If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
-        ;                 SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
-        ;               EndIf 
-        ;             Next 
-        ;           EndIf 
-        ;         Next  
-        ; RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
-        RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
-        
-        ;UpdateWindow_(GadgetID(*list\ScrollArea))
-        ;RedrawWindow_(GadgetID(*list\ScrollArea), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
-         CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-        Protected hWnd.i = GadgetID(*list\ScrollArea)
-        If hWnd
-          SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
-        EndIf
-      CompilerEndIf
+        CompilerIf #PB_Compiler_OS = #PB_OS_Windows   
+          
+          SendMessage_(GadgetID(*List\ScrollArea), #WM_SETREDRAW, #True, 0)
+          ;         ForEach ModernListElement::ElementMap()
+          ;           If ElementMap()\ChildGadgets <> 0
+          ;             ForEach ElementMap()\ChildGadgets\Gadgets()
+          ;               If ElementMap()\ChildGadgets\Gadgets() And IsGadget(ElementMap()\ChildGadgets\Gadgets())
+          ;                 SendMessage_(GadgetID(ElementMap()\ChildGadgets\Gadgets()), #WM_SETREDRAW, #True, 0)
+          ;               EndIf 
+          ;             Next 
+          ;           EndIf 
+          ;         Next  
+          ; RedrawWindow_(GadgetID(*List\ScrollArea), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW)
+          RedrawWindow_(GadgetID(*List\InnerContainer), 0, 0,  #RDW_INVALIDATE | #RDW_UPDATENOW| #RDW_ALLCHILDREN)
+          
+          ;UpdateWindow_(GadgetID(*list\ScrollArea))
+          ;RedrawWindow_(GadgetID(*list\ScrollArea), 0, 0, #RDW_ERASE | #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN)
+          Protected hWnd.i = GadgetID(*list\ScrollArea)
+          If hWnd
+            SetWindowPos_(hWnd, 0, 0, 0, 0, 0, #SWP_NOMOVE | #SWP_NOSIZE | #SWP_NOZORDER | #SWP_FRAMECHANGED | #SWP_NOACTIVATE)
+          EndIf
+        CompilerEndIf
         
       EndIf 
       
@@ -2036,10 +2046,10 @@ EndProcedure
       EndIf 
       
     EndProcedure
-
-
-
-Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginElementTop, addLeftScrollbarMaring, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=30, User_DPI_Scale.f=1, *resizeProc=0)
+    
+    
+    
+    Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginElementTop, addLeftScrollbarMaring, List rows.ListRow(), *header.ListHeader=0, defaultRowHeight.i=30, User_DPI_Scale.f=1, *resizeProc=0)
       
       
       
@@ -2102,7 +2112,7 @@ Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginEl
       
       *list\MainContainer = ContainerGadget(#PB_Any, x, y, *list\Width, *list\Height, #PB_Container_BorderLess)
       
-
+      
       
       If *list\HeaderHeight > 0
         *list\HeaderContainer = CanvasGadget(#PB_Any, 0, 0, *list\Width, *list\HeaderHeight)
@@ -2140,15 +2150,15 @@ Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginEl
       *list\ScrollArea = ScrollAreaGadget(#PB_Any, 0, scrollY, *list\Width, scrollH, innerWidth, totalRowHeight, 0, #PB_ScrollArea_BorderLess)
       SetGadgetColor(*list\ScrollArea,#PB_Gadget_BackColor,bg)
       
-
-
-
+      
+      
+      
       ; Apply to your ScrollAreaGadget
       BindGadgetEvent(*list\ScrollArea, @ScrollAreaCallback())
       
       *list\InnerContainer = ContainerGadget(#PB_Any, 0 , 0, innerWidth, totalRowHeight, #PB_Container_BorderLess)
-
-
+      
+      
       
       xPos = 0
       If *list\AddLeftScrollbarMaring
@@ -2164,8 +2174,8 @@ Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginEl
           rowH = *list\RowHeight
         EndIf
         rowGadget = CanvasGadget(#PB_Any,xPos , yPos, listContentWidth, rowH, #PB_Canvas_Container | #PB_Canvas_Keyboard)
-
-
+        
+        
         
         ; Calculate element widths using flex
         Dim elemWidths.i(ListSize(*list\Rows()\Elements()) - 1)
@@ -2180,8 +2190,8 @@ Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginEl
           Protected *interface.GadgetInterface = *list\Rows()\Elements()\Interface
           *list\Rows()\Elements()\Gadget = ModernListElement::CreateElement(rowGadget, xElem, 0,*list\MarginElementTop, elemW, rowH, *List\Rows()\Elements()\Type, *list\Rows()\Elements()\Content, elementIndex, *interface, autoResize)
           
-
-
+          
+          
           xElem + elemW
           elementIndex + 1
           widthIndex + 1
@@ -2222,22 +2232,24 @@ Procedure CreateList(window.i, x.i, y.i, width.i, height.i, marginSide, marginEl
     
     
     Procedure CleanUp(*list.ModernListData)
-      
-      If Not *list
-        ProcedureReturn
-      EndIf
+      CompilerIf #PB_Compiler_OS = #PB_OS_Windows   
+        
+        If Not *list
+          ProcedureReturn
+        EndIf
+        
+        ForEach brushes()
+          DeleteObject_(brushes())
+        Next 
+      CompilerEndIf
       FreeMemory(*list)
       
-      ForEach brushes()
-        DeleteObject_(brushes())
-      Next 
     EndProcedure
     
   EndModule
-
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 1506
-; FirstLine = 1486
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 2248
+; FirstLine = 2216
 ; Folding = ---------
 ; EnableXP
 ; DPIAware
