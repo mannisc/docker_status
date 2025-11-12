@@ -1,4 +1,4 @@
-﻿ ExamineDesktops()
+﻿ExamineDesktops()
 
 ; Constants
 #WindowID = 0
@@ -28,8 +28,8 @@ html$ = "<html><head><meta charset='utf-8'>" +
         "</body></html>"
 
 
-  
-  Procedure WebViewResizeGadget(Gadget, x.f, y.f, width.f, height.f, parentsRoundingDeltaX.f = 0, parentsRoundingDeltaY.f = 0)
+
+Procedure WebViewResizeGadget(Gadget, x.f, y.f, width.f, height.f, parentsRoundingDeltaX.f = 0, parentsRoundingDeltaY.f = 0)
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     If IsGadget(Gadget)
       Protected hWnd = GadgetID(Gadget)
@@ -119,21 +119,22 @@ html$ = "<html><head><meta charset='utf-8'>" +
         SetWindowPos_(hWebView, #Null, 0, 0, newW, newH, flags)
         InvalidateRect_(hWebView, #Null, #False)
         RedrawWindow_(hWebView, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
-
+        
       EndIf
       
       InvalidateRect_(hWnd, #Null, #False)
-              RedrawWindow_(hWnd, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
-
+      RedrawWindow_(hWnd, #Null, #Null, #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_FRAME)
+      
     EndIf
   CompilerElse
     ResizeGadget(Gadget, x, y, width, height)
   CompilerEndIf
   ProcedureReturn
 EndProcedure
+
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   
-  
-Procedure WinCallback(hWnd, uMsg, WParam, LParam) 
+  Procedure WinCallback(hWnd, uMsg, WParam, LParam) 
     ; Windows fills the parameter automatically, which we will use in the callback...
     
     If uMsg = #WM_SIZE 
@@ -146,23 +147,24 @@ Procedure WinCallback(hWnd, uMsg, WParam, LParam)
           Debug "Window was maximized" 
       EndSelect 
       
-       ; Get new size
+      ; Get new size
       
-       w = WindowWidth(#WindowID)
-       h = WindowHeight(#WindowID)
+      w = WindowWidth(#WindowID)
+      h = WindowHeight(#WindowID)
       ; Resize WebView to fill
       WebViewResizeGadget(#GadgetWeb, 0, 0, w, h)
       
     EndIf 
-
+    
     ProcedureReturn #PB_ProcessPureBasicEvents 
   EndProcedure 
-  
-  
+CompilerEndIf
+
 ; Create window
 If OpenWindow(#WindowID, 0, 0, 600, 400, "WebView List Example", #PB_Window_SystemMenu | #PB_Window_SizeGadget  | #PB_Window_MinimizeGadget | #PB_Window_MaximizeGadget)
-  SetWindowCallback(@WinCallback(), 0) ; set the callback
-
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    SetWindowCallback(@WinCallback(), 0) ; set the callback
+  CompilerEndIf
   ; Create WebView gadget filling the whole window initially
   WebViewGadget(#GadgetWeb, 0, 0, WindowWidth(#WindowID), WindowHeight(#WindowID))
   
@@ -175,18 +177,20 @@ If OpenWindow(#WindowID, 0, 0, 600, 400, "WebView List Example", #PB_Window_Syst
     
     ; Handle window resize event
     If Event = #PB_Event_SizeWindow
-     
+        w = WindowWidth(#WindowID)
+      h = WindowHeight(#WindowID)
+      ; Resize WebView to fill
+      WebViewResizeGadget(#GadgetWeb, 0, 0, w, h)
     EndIf
     
   Until Event = #PB_Event_CloseWindow
 EndIf
-
-; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 118
-; FirstLine = 88
+; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
+; CursorPosition = 182
+; FirstLine = 151
 ; Folding = -
 ; Optimizer
 ; EnableXP
 ; DPIAware
-; Executable = ..\..\test.exe
+; Executable = ../../test.exe
 ; DisableDebugger
