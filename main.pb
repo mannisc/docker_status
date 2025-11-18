@@ -4800,7 +4800,7 @@ BeginFreeze(#WIN_ID)
       
       MainWindow::Open()           
       
-     ;MonitorDialog::Open()
+     MonitorDialog::Open()
       ;AppWindow::Open()
 
       RunEventLoop(@HandleMainEvent())
@@ -4818,8 +4818,8 @@ BeginFreeze(#WIN_ID)
   WindowManager::CleanupManagedWindows()
   App::CleanupApp() 
 ; IDE Options = PureBasic 6.21 (Windows - x64)
-; CursorPosition = 4763
-; FirstLine = 4745
+; CursorPosition = 4802
+; FirstLine = 4781
 ; Folding = -------------------------------------
 ; Optimizer
 ; EnableThread
