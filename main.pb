@@ -3915,6 +3915,7 @@ EndStructure
 
 Global freeze.FreezeData
 
+   CompilerIf #PB_Compiler_OS = #PB_OS_MacOS
 Procedure BeginFreeze(Window)
   Protected nsView = CocoaMessage(0, WindowID(Window), "contentView")
   Protected frame.NSRect
@@ -3947,7 +3948,12 @@ Procedure EndFreeze(Window)
     freeze\nsImage = 0
   EndIf
   CocoaMessage(0, WindowID(Window), "display")
-EndProcedure
+  EndProcedure
+
+CompilerEndIf
+
+  
+
     
     Procedure HandleLayout(*tabBar.VerticalTabBarData, index.i, width, height, IsExpanded,*deltaWidth,*parentsRoundingDeltaX)
       
@@ -3987,7 +3993,6 @@ BeginFreeze(#WIN_ID)
       NormalResizeGadget(*Gadgets\BtnRemove, 15+buttonGroupX+85+15,#PB_Ignore,#PB_Ignore , #PB_Ignore, parentsRoundingDeltaX)
       
 
-            CocoaMessage(0, WindowID(#WIN_ID), "display")
 
       CompilerIf #PB_Compiler_OS = #PB_OS_Windows
         SendMessage_(GadgetID(tabIds(index)), #WM_SETREDRAW, 1, 0)
@@ -3996,7 +4001,9 @@ BeginFreeze(#WIN_ID)
          ;RedrawWindow_(WindowID(#WIN_ID), 0, 0, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_INTERNALPAINT)
         
         ;  RedrawWindow_(WindowID(#WIN_ID), #Null, #Null, #RDW_INVALIDATE | #RDW_UPDATENOW | #RDW_ALLCHILDREN | #RDW_ERASE | #RDW_INTERNALPAINT)
-       CompilerElseIf #PB_Compiler_OS = #PB_OS_MacOS
+      CompilerElseIf #PB_Compiler_OS = #PB_OS_MacOS
+         CocoaMessage(0, WindowID(#WIN_ID), "display")
+
 ;        CocoaMessage(0, GadgetID(*list\MainContainer), "setHidden:", #NO)
  ;CocoaMessage(0, GadgetID(*tabBar\ContentContainer), "setNeedsDisplay:", #YES)
  ;CocoaMessage(0, GadgetID(*tabBar\ContentContainer), "displayIfNeeded")
@@ -4791,32 +4798,32 @@ BeginFreeze(#WIN_ID)
       
       MonitorDialog::CreateWindow()
       
-      ;MainWindow::Open()           
+      MainWindow::Open()           
       
      ;MonitorDialog::Open()
-            AppWindow::Open()
+      ;AppWindow::Open()
 
       RunEventLoop(@HandleMainEvent())
       
-      
+      EndProcedure
     EndModule
     
     
     
-  EndProcedure
+  
   
   Execute::StartApp()
   ; Cleanup
   
   WindowManager::CleanupManagedWindows()
   App::CleanupApp() 
-; IDE Options = PureBasic 6.21 - C Backend (MacOS X - arm64)
-; CursorPosition = 3941
-; FirstLine = 3923
+; IDE Options = PureBasic 6.21 (Windows - x64)
+; CursorPosition = 4763
+; FirstLine = 4745
 ; Folding = -------------------------------------
 ; Optimizer
 ; EnableThread
 ; EnableXP
 ; DPIAware
 ; UseIcon = icon.ico
-; Executable = Docker Status.exe
+; Executable = ..\..\Docker Status.exe
